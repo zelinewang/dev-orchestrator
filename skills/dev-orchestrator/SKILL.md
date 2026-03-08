@@ -20,19 +20,46 @@ Everything between is automated.
 
 ---
 
-## PRE-CHECK: Project Setup
+## PRE-CHECK: Auto-Setup (runs once per project, silently)
 
-Before Phase 0, verify project has required infrastructure:
+Before Phase 0, verify project infrastructure. Fix anything missing automatically.
+Show one-line status for each check. Do NOT ask for permission — just do it.
 
-1. **OpenSpec**: If `openspec/` directory does NOT exist in the project root:
-   - Tell the developer: "This project hasn't been initialized with OpenSpec yet."
+1. **Git**: If not a git repo, warn developer (worktrees won't work).
+
+2. **OpenSpec**: If `openspec/` directory does NOT exist:
    - Run: `openspec init --tools claude --profile core`
-   - Then create `openspec/config.yaml` using the template at
-     `~/.claude/templates/openspec-config.yaml` — adapt context to this project's
-     actual tech stack (read package.json, requirements.txt, etc. to detect)
-   - This is a one-time setup per project.
+   - Auto-detect tech stack from project files:
+     - `package.json` → Node.js/TypeScript, detect framework (React, Next, Express, etc.)
+     - `requirements.txt` / `pyproject.toml` → Python, detect framework (FastAPI, Django, etc.)
+     - `Cargo.toml` → Rust
+     - `go.mod` → Go
+     - `pom.xml` / `build.gradle` → Java
+   - Create `openspec/config.yaml` based on `~/.claude/templates/openspec-config.yaml`
+     with the detected tech stack filled in (replace `[language]`, `[framework]`, etc.)
+   - Show: "✓ OpenSpec initialized (detected: [stack])"
 
-2. **Git**: If not a git repo, warn the developer (worktrees won't work).
+3. **gitignore**: If `.gitignore` exists but does NOT contain `openspec/changes/archive/`:
+   - Append these lines:
+     ```
+     # OpenSpec archives (large over time)
+     openspec/changes/archive/
+     # Worktrees
+     .worktrees/
+     ```
+   - Show: "✓ .gitignore updated"
+
+4. **Project CLAUDE.md** (optional, first-time only): If NO `.claude/CLAUDE.md`
+   or `CLAUDE.md` exists in project root, create a minimal one by scanning:
+   - README.md for project description
+   - Directory structure for architecture patterns
+   - package.json / pyproject.toml for dependencies
+   - Content: project purpose (1 line), tech stack, key directories, test command
+   - Show: "✓ Project CLAUDE.md created"
+   - Skip if project already has one.
+
+After all checks pass, show summary and proceed to Phase 0:
+"Project ready. [N items auto-configured.] Starting investigation..."
 
 ---
 
