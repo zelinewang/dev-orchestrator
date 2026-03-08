@@ -20,6 +20,22 @@ Everything between is automated.
 
 ---
 
+## PRE-CHECK: Project Setup
+
+Before Phase 0, verify project has required infrastructure:
+
+1. **OpenSpec**: If `openspec/` directory does NOT exist in the project root:
+   - Tell the developer: "This project hasn't been initialized with OpenSpec yet."
+   - Run: `openspec init --tools claude --profile core`
+   - Then create `openspec/config.yaml` using the template at
+     `~/.claude/templates/openspec-config.yaml` — adapt context to this project's
+     actual tech stack (read package.json, requirements.txt, etc. to detect)
+   - This is a one-time setup per project.
+
+2. **Git**: If not a git repo, warn the developer (worktrees won't work).
+
+---
+
 ## PHASE 0: INVESTIGATE BEFORE DECIDING (Mandatory, ~5 min)
 
 **Do NOT skip this phase. Do NOT decide tier from keywords alone.**

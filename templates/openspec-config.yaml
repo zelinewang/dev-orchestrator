@@ -1,0 +1,35 @@
+# OpenSpec Project Configuration
+# Copy to: openspec/config.yaml (after running `openspec init`)
+# Adapt the context section to match your project's actual tech stack.
+
+schema: spec-driven
+
+context: |
+  # === ADAPT THIS SECTION TO YOUR PROJECT ===
+  Tech stack: [language], [framework], [database]
+  API style: [REST/GraphQL], documented in [path]
+  Testing: [framework] + [tool]
+  Auth: [method]
+  Deploy: [platform/method]
+  Key conventions: [async by default / ORM everywhere / etc.]
+
+rules:
+  proposal:
+    - Include rollback plan if scope > 1 day of work
+    - Name changes by purpose (add-dark-mode, not feature-1)
+    - Reference existing patterns in codebase before inventing new ones
+    - Identify affected teams/services if applicable
+  specs:
+    - Use Given/When/Then scenario format
+    - Include error and edge case scenarios
+    - Reference existing openspec/specs/ before creating new domains
+    - Use RFC 2119 keywords (MUST/SHALL/SHOULD/MAY) for requirement strength
+  design:
+    - Provide 2-3 approaches with trade-offs and recommendation
+    - Reference Architecture Pattern Selection from CLAUDE.md
+    - Consider backwards compatibility for public APIs
+  tasks:
+    - Each task completable in 2-5 minutes
+    - Include TDD steps: write failing test, implement, verify
+    - Group related tasks under headings with hierarchical numbering
+    - Include commit step after each task group
