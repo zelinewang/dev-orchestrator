@@ -1,0 +1,26 @@
+{
+  "name": "dev-orchestrator",
+  "description": "End-to-end AI development orchestrator. One command to investigate, plan, implement, verify, and ship — with built-in TDD, root-cause debugging, regression protection, and spec-driven development.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Zane Wang",
+    "email": "zane@example.com"
+  },
+  "homepage": "https://github.com/zelinewang/dev-orchestrator",
+  "repository": "https://github.com/zelinewang/dev-orchestrator",
+  "license": "MIT",
+  "keywords": [
+    "orchestrator",
+    "workflow",
+    "tdd",
+    "debugging",
+    "verification",
+    "openspec",
+    "automation",
+    "development",
+    "agent-teams",
+    "spec-driven"
+  ],
+  "skills": "./skills/",
+  "commands": "./commands/"
+}
