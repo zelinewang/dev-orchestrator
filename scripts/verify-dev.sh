@@ -7,13 +7,24 @@
 # Exit codes: 0 = verified/warning, 1 = blocked (test failures)
 
 set -o pipefail
+
+# Mode detection: --research, --cicd, or default (develop)
+MODE="develop"
+while [[ "$1" == --* ]]; do
+  case "$1" in
+    --research) MODE="research"; shift ;;
+    --cicd) MODE="cicd"; shift ;;
+    *) shift ;;
+  esac
+done
+
 PROJECT_ROOT="${1:-.}"
 cd "$PROJECT_ROOT" 2>/dev/null || { echo "Cannot cd to $PROJECT_ROOT"; exit 1; }
 
 FAILURES=0
 WARNINGS=0
 
-echo "=== /dev Verification Gate ==="
+echo "=== /dev Verification Gate (mode: $MODE) ==="
 echo ""
 
 # ─── RULE 1: DOUBLE-VERIFY (run full test suite, capture counts) ─────────
@@ -105,6 +116,46 @@ if [ "$TODOS" -gt 0 ]; then
   WARNINGS=$((WARNINGS+1))
 else
   echo "  ✓ No debug leftovers"
+fi
+
+# ─── RESEARCH MODE: Coverage verification ────────────────────────────────
+
+if [[ "$MODE" == "research" ]]; then
+  echo "[RESEARCH] Coverage check..."
+  SEARCH_TERM="${2:-}"
+  REPORT_PATH="${3:-}"
+  if [ -n "$SEARCH_TERM" ]; then
+    NOTES=$(claudemem search "$SEARCH_TERM" --compact --format json --limit 10 2>/dev/null | jq 'length' 2>/dev/null || echo "0")
+    if [ "$NOTES" -gt 0 ]; then
+      echo "  ✓ $NOTES claudemem notes found for '$SEARCH_TERM'"
+    else
+      echo "  ⚠ No claudemem notes found for '$SEARCH_TERM'"
+      WARNINGS=$((WARNINGS+1))
+    fi
+  fi
+  if [ -n "$REPORT_PATH" ] && [ -f "$REPORT_PATH" ]; then
+    LINES=$(wc -l < "$REPORT_PATH" | tr -d ' ')
+    echo "  ✓ Report exists: $REPORT_PATH ($LINES lines)"
+  elif [ -n "$REPORT_PATH" ]; then
+    echo "  ⚠ Report not found: $REPORT_PATH"
+    WARNINGS=$((WARNINGS+1))
+  fi
+  echo ""
+fi
+
+# ─── CICD MODE: Infrastructure verification ──────────────────────────────
+
+if [[ "$MODE" == "cicd" ]]; then
+  echo "[CICD] Infrastructure check..."
+  # Check for secrets in staged changes
+  SECRETS=$(git diff --cached 2>/dev/null | grep -ciE '(api_key|secret|token|password|bearer)\s*[:=]' || true)
+  if [ "$SECRETS" -gt 0 ]; then
+    echo "  ✗ BLOCKED: $SECRETS potential secrets found in staged changes"
+    FAILURES=$((FAILURES+1))
+  else
+    echo "  ✓ No secrets detected in staged changes"
+  fi
+  echo ""
 fi
 
 # ─── SUMMARY ─────────────────────────────────────────────────────────────

@@ -1,289 +1,311 @@
 ---
 name: dev-orchestrator
 description: >
-  End-to-end AI development orchestrator. Single entry point for ALL development
-  tasks: features, bug fixes, refactors, CICD changes. Auto-detects task tier
-  via investigation, chains all available skills, enforces verification rules.
-  Use when: user says /dev, starts any development task, or describes work to do.
+  End-to-end AI development orchestrator. Single entry point for ALL tasks:
+  features, bug fixes, refactors, research, CICD changes. Classifies task type,
+  auto-detects tier, chains skills, enforces verification. Self-enforcing protocol.
+  Use when: user says /dev, starts any task, or describes work to do.
 ---
 
-# /dev — Enforced Development Protocol
+# /dev — Self-Enforcing Development Protocol (v2)
 
-One command to orchestrate the entire development lifecycle.
-Developer describes what they want → AI investigates, plans, implements,
-verifies, and ships — with structural enforcement at every stage.
-
-**Developer touches the keyboard twice:**
-1. Review plan/specs — confirm direction is right
-2. Review PR — approve to merge
-
-Everything between is automated and enforced.
+One command to orchestrate the entire lifecycle for ANY task type.
+Developer describes what they want → AI classifies, investigates, plans, executes,
+verifies, and delivers — with structural enforcement at every phase.
 
 ```
 UNDERSTAND ──[CHECKPOINT 1]──> BUILD ──[GATE]──> DELIVER ──[CHECKPOINT 2]──>
+P0-P5                          P6-P7             P8-P10
 ```
 
 ---
 
-## PRE-CHECK: Auto-Setup (runs once per project, silently)
+## ENFORCEMENT: Phase Status Blocks (NON-NEGOTIABLE)
 
-Show one-line status for each check. Do NOT ask for permission — just do it.
+**Every phase MUST output a status block. Silent skipping = protocol violation.**
 
-1. **Git**: If not a git repo, warn developer (worktrees won't work).
+```
+┌─ P<N>: <NAME> ────────────────────────────────
+│ Status: DONE | SKIP <reason> | ADAPT <explanation>
+│ Task: <type> | Tier: <tier>
+│ Key actions: <what was done>
+│ Next: P<N+1>
+└────────────────────────────────────────────────
+```
 
-2. **OpenSpec**: If `openspec/` directory does NOT exist:
-   - Run: `openspec init --tools claude --profile core`
-   - Auto-detect tech stack from project files:
-     - `package.json` → Node.js/TypeScript, detect framework
-     - `requirements.txt` / `pyproject.toml` → Python, detect framework
-     - `Cargo.toml` → Rust | `go.mod` → Go | `pom.xml` / `build.gradle` → Java
-   - Create `openspec/config.yaml` based on `~/.claude/templates/openspec-config.yaml`
+- SKIP is valid — but ONLY with a documented reason tied to task type.
+- No status block = phase not executed = protocol violation.
+- Output status blocks in conversation, NOT in plan files.
 
-3. **gitignore**: If `.gitignore` doesn't contain `openspec/changes/archive/`:
-   - Append: `openspec/changes/archive/` and `.worktrees/`
+---
 
-4. **Project CLAUDE.md** (first-time only): If none exists, create from:
-   - README.md (project description), directory structure, package manager files
-   - Content: purpose, tech stack, key directories, test command
+## P0: PRE-CHECK (Auto-Setup, runs once per project)
+
+Show one-line status per check. Do NOT ask permission — just do it.
+
+| Check | Action | DEVELOP | RESEARCH | CICD |
+|-------|--------|---------|----------|------|
+| **Git** | If not git repo, warn (worktrees won't work) | Required | Warn only | Required |
+| **OpenSpec** | If `openspec/` missing → `openspec init --tools claude --profile core` | Auto-detect stack | Skip | Skip |
+| **gitignore** | Append `openspec/changes/archive/` and `.worktrees/` if missing | Yes | Skip | Yes |
+| **CLAUDE.md** | If project has none → create from README + dir structure | Yes | Skip | Yes |
 
 "Project ready. Starting investigation..."
 
 ---
 
-## PHASE 0: INVESTIGATE (Mandatory, ~5 min)
+## P1: INVESTIGATE (Mandatory, ~5 min)
 
-**Do NOT skip. Do NOT decide tier from keywords.**
+**Do NOT skip. Do NOT decide tier or type from keywords. Research BEFORE classifying.**
 
-```bash
-claudemem search "<task keywords>" --compact --format json --limit 5
-# If relevant: claudemem note get <id>
-# Concept search: claudemem search "<keywords>" --semantic --compact --format json --limit 5
-```
+| Source | Action | When |
+|--------|--------|------|
+| **Memory** | `claudemem search "<keywords>" --compact --format json --limit 5` | Always |
+| **Web** | Brave (direct lookups) or Exa (exploratory) per CLAUDE.md MCP table | Always |
+| **Library docs** | context7 for frameworks/libraries involved | If applicable |
+| **Current state** | API → fetch MCP; DB → postgres/mysql MCP; UI → playwright | If applicable |
+| **Project context** | Read files, `openspec/specs/`, `git log --oneline -10` | Always |
 
-Read relevant files, check `openspec/specs/`, check `git log --oneline -10`.
+Save key findings as claudemem notes **during** investigation, not after.
 
-**Tier detection (evidence-based):**
+---
+
+## P2: CLASSIFY (Mandatory, immediately after investigation)
+
+Based on P1 evidence, classify **task type** and **tier**. Both MUST be in status block.
+
+### Task Type
+
+| Type | Evidence | Key Adaptation |
+|------|----------|---------------|
+| **DEVELOP** | Code change needed (feature, bug, refactor) | Full TDD + worktree + PR |
+| **RESEARCH** | Investigate, document, analyze, learn | No TDD/worktree, keep brainstorm/verify/wrapup |
+| **CICD** | Pipeline, infra, deploy, config change | No TDD, add dry-run + rollback verification |
+
+If unclear → default to DEVELOP (safest — has all gates).
+
+### Tier (evidence-based, NOT keyword-based)
 
 | Evidence | Tier | Rationale |
 |----------|------|-----------|
-| Simple isolated change, no architectural impact | QUICK | Direct TDD fix |
-| New capability or behavior change | STANDARD | Needs specs + structured implementation |
-| 3+ modules, CICD, architecture, unclear root cause | DEEP | Deep exploration + multi-agent |
+| Simple isolated change, no architectural impact | QUICK | Direct fix → Gate → commit |
+| New capability or behavior change | STANDARD | Full phases, all gates |
+| 3+ modules, architecture, unclear root cause | DEEP | Full phases + agent teams + CI wait + /wrapup |
 
 Tier escalation: QUICK reveals design issue → auto-upgrade to STANDARD.
 
 ---
 
-## TIER FLOWS
+## Phase Adaptations by Task Type
 
-### QUICK TIER (Bug fix / Small change, ~5-15 min)
+| Phase | DEVELOP | RESEARCH | CICD |
+|-------|---------|----------|------|
+| **P0 PRE-CHECK** | Full setup | Git warn only | Git + CI config |
+| **P1 INVESTIGATE** | Memory + code + docs | Memory + web + repo + docs | Memory + pipeline + infra |
+| **P2 CLASSIFY** | → DEVELOP | → RESEARCH | → CICD |
+| **P3 BRAINSTORM** | Intent + design trade-offs | Intent + deliverable scope | Impact + rollback strategy |
+| **P4 SPECIFY** | `openspec-propose` | Research proposal | Change spec (what/why/rollback) |
+| **P5 PLAN** | `writing-plans` (TDD tasks) | Research plan (questions + sources) | Change plan (steps + dry-run) |
+| **P6 SETUP** | `using-git-worktrees` + baseline | Clone repo if needed | Backup current config/state |
+| **P7 EXECUTE** | TDD per task + subagents | Investigate + real-time notes | Implement + dry-run + log |
+| **P8 VERIFY** | Test suite + `verify-dev.sh` | Coverage + completeness check | Infra check + rollback test |
+| **P9 SHIP** | Code review + PR + push | Deliver report + notes | Apply + monitor + /wrapup |
+| **P10 ARCHIVE** | `openspec archive` + notes | claudemem + /wrapup + G/D/N | Notes + /wrapup + runbook |
 
-**Skills: systematic-debugging, test-driven-development, verification-before-completion**
+---
 
-Flow: Phase 0 → Root cause → TDD Protocol → Gate → commit.
+## QUICK TIER (Bug fix / Small change)
 
-1. **Root cause investigation** — invoke `systematic-debugging` skill
-   - Phase 1: Read errors, reproduce, gather evidence
-   - Phase 2: Find working examples, compare
-   - Phase 3: Form ONE hypothesis, test minimally
-   - RULE 3: Root cause > patches. Design issue or surface bug?
-   - If design issue → ESCALATE to STANDARD tier
+**Skills**: systematic-debugging, test-driven-development, verification-before-completion
+
+Flow: P1 → P2 → Root cause → TDD → Gate → commit.
+
+1. **Root cause** — invoke `systematic-debugging` skill. If design issue → ESCALATE to STANDARD.
 2. **TDD fix** — Follow TDD Protocol (below). Single task cycle.
 3. **Gate** — `bash ~/.claude/scripts/verify-dev.sh`
 4. **Commit + memory** — auto-commit, `claudemem note add` with root cause + fix.
 
-### STANDARD TIER (Feature development)
-
-All 7 phases, all gates.
-
-### DEEP TIER (Complex system change, ~2-8 hours)
-
-All 7 phases + these extras:
-
-**Extra: Deep Investigation** (before Phase 1)
-- Invoke `feature-dev:code-explorer` agents (2-3 in parallel) to deeply analyze codebase
-- Check claudemem for related sessions/notes
-- Check Notion for related tasks/docs
-- SSM into EC2 if applicable (runtime state, not just code)
-
-**Extra: Agent Teams for Debugging** (during Phase 4)
-If root cause unclear after investigation:
-- Spawn 3-5 Agent Team teammates with competing hypotheses
-- Each teammate investigates a different theory
-- Teammates actively try to DISPROVE each other
-- Surviving theory = actual root cause
-
-**Extra: CICD Persistence** (after Phase 6)
-- Wait for CI pipeline to complete (`gh run watch`)
-- Verify CI passes (not just local tests)
-- If CI fails: investigate, fix, re-push
-- RULE 5: Changes only "done" when CI passes
-
-**Extra: Deep Memory Wrapup** (Phase 7)
-- Detailed session report via `/wrapup`
-- Save architectural decisions to claudemem
-- Goal/Done/Next organized by business objectives
+QUICK tier outputs status blocks for P1, P2, and a combined P7-P9 block.
 
 ---
 
-# STAGE 1: UNDERSTAND
+## DEEP TIER EXTRAS (on top of all standard phases)
 
-Contains Phase 0, Phase 1, Phase 2.
+| Extra | When | Action |
+|-------|------|--------|
+| **Deep Investigation** | Before P3 | `feature-dev:code-explorer` agents (2-3 parallel), claudemem sessions |
+| **Agent Teams** | P7 if root cause unclear | 3-5 agents with competing hypotheses, disprove each other |
+| **CICD Persistence** | After P9 | `gh run watch`, verify CI passes, fix if fails |
+| **Deep Wrapup** | P10 | Detailed `/wrapup` session report, Goal/Done/Next by business objectives |
 
-## Phase 1: SPECIFY (STANDARD/DEEP only)
+---
 
-Invoke `openspec-propose` skill → creates proposal.md, specs/, design.md, tasks.md.
+# STAGE 1: UNDERSTAND (P3-P5)
 
-## Phase 2: PLAN (STANDARD/DEEP only)
+## P3: BRAINSTORM (STANDARD/DEEP — MANDATORY, NOT OPTIONAL)
 
-Invoke `writing-plans` skill with OpenSpec output as input.
-Each task = 2-5 min. Each task MUST include: what test to write, what to implement, what to verify.
-Save plan to `docs/plans/YYYY-MM-DD-<name>.md`.
+**This is the FIRST skill invoked after classification. It determines everything downstream.**
+Invoke `brainstorming` skill. Do NOT skip "because it seems simple."
+
+| Task Type | Brainstorm Focus |
+|-----------|-----------------|
+| DEVELOP | User intent, design trade-offs, 2-3 approaches |
+| RESEARCH | Deliverable scope, questions to answer, sources to check |
+| CICD | Impact assessment, rollback strategy, blast radius |
+
+## P4: SPECIFY (STANDARD/DEEP)
+
+| Task Type | Action | Output |
+|-----------|--------|--------|
+| DEVELOP | Invoke `openspec-propose` | `openspec/changes/<name>/` with proposal.md + design.md |
+| RESEARCH | Create research proposal | Questions, sources, deliverables, scope boundary |
+| CICD | Create change spec | What changes, why, rollback plan, blast radius |
+
+## P5: PLAN (STANDARD/DEEP)
+
+| Task Type | Action | Output |
+|-----------|--------|--------|
+| DEVELOP | Invoke `writing-plans` with OpenSpec output | `docs/plans/YYYY-MM-DD-<name>.md`, each task = 2-5 min with TDD steps |
+| RESEARCH | Create research plan | Questions to answer, sources per question, deliverable per section |
+| CICD | Create change plan | Steps, dry-run command, verify command, rollback command |
 
 ### CHECKPOINT 1: Developer reviews plan/specs
-
-Present plan summary. Use AskUserQuestion.
-"Here are the specs and plan. Review and confirm, or tell me what to change."
-
+Present plan summary via AskUserQuestion.
 This is the ONLY human input before BUILD starts.
 
 ---
 
-# STAGE 2: BUILD
+# STAGE 2: BUILD (P6-P7)
 
-Contains Phase 3, Phase 4.
+## P6: SETUP (STANDARD/DEEP)
 
-## Phase 3: SETUP (STANDARD/DEEP only)
+| Task Type | Action |
+|-----------|--------|
+| DEVELOP | Invoke `using-git-worktrees`. Verify baseline tests pass. If baseline fails → STOP. |
+| RESEARCH | Clone repo if needed (`gh repo clone`). No worktree. |
+| CICD | Backup current config/state before making changes. |
 
-Invoke `using-git-worktrees` skill. Create isolated worktree, verify baseline tests pass.
-If baseline fails → STOP and investigate.
+## P7: EXECUTE
 
-## Phase 4: EXECUTE
+### DEVELOP: TDD Per Task
 
-Per task from the plan, invoke `subagent-driven-development` skill:
+Invoke `subagent-driven-development` per task from plan:
+1. **Implementer** — follows TDD Protocol | 2. **Spec reviewer** — compare vs specs
+3. **Quality reviewer** — bugs, security (≥80% confidence) | 4. **Per-task verify** — full suite
+5. **Auto-commit** — test + implementation together
 
-1. **Implementer subagent** — follows TDD Protocol (below)
-2. **Spec reviewer subagent** — compare against OpenSpec specs
-3. **Quality reviewer subagent** — bugs, security, patterns (≥80% confidence)
-4. **Per-task verify** — full test suite after each task
-5. **Auto-commit** — test file + implementation file together
+**Agent Teams upgrade** (DEEP): if 3+ independent layers → `dispatching-parallel-agents`.
 
-**Agent Teams upgrade** — if 3+ independent layers, spawn Agent Teams.
+**Proactive MCP use**: context7 for APIs, fetch for endpoints, playwright for UI, DB MCPs for data.
 
-If test fails:
-- RULE 2: Is the TEST wrong or the CODE wrong?
-- RULE 3: `systematic-debugging` before patching.
-- RULE 6: Verify all consumers updated.
+### RESEARCH: Investigate + Notes
 
-### TDD Protocol (enforced, every task)
+Per question from research plan:
+1. Investigate via agents/search/MCPs (use `feature-dev:code-explorer` for DEEP)
+2. **Save findings as claudemem notes IN REAL TIME** — `[noted: "title" -> category]`
+3. Compile into report section
+4. Verify: question answered with evidence?
 
-This is a PROTOCOL — fixed sequence, not optional. Same enforcement level as
-claudemem's session report template. Skipping any step = task not complete.
+### CICD: Implement + Dry-Run
 
-```
-STEP 1 — RED
-  Create test file for this task.
-  Run test. Capture output.
-  REQUIRED: Output shows FAIL.
-  If test passes → test is wrong. Fix test first.
+1. Implement change | 2. Dry-run locally (`act`, `terraform plan`, etc.)
+3. Auto-commit | 4. Log expected vs actual
 
-STEP 2 — GREEN
-  Implement the minimum code to pass the test.
-  Run test. Capture output.
-  REQUIRED: Output shows PASS.
+### TDD Protocol (DEVELOP only, enforced per task)
 
-STEP 3 — VERIFY
-  Run project's full test suite.
-  REQUIRED: 0 new failures vs baseline.
-  If regression → RULE 2: audit test first, then code.
+| Step | Action | Required Output |
+|------|--------|----------------|
+| **RED** | Create test, run it | Output shows FAIL |
+| **GREEN** | Implement minimum code, run test | Output shows PASS |
+| **VERIFY** | Run full test suite | 0 new failures vs baseline |
+| **COMMIT** | `git add` test + implementation | Descriptive commit message |
 
-STEP 4 — COMMIT
-  git add both test file AND implementation file.
-  Auto-commit with descriptive message.
-```
+Evidence from RED/GREEN/VERIFY must be captured (paste output). Skipping = task not complete.
 
-Evidence from steps 1-3 must be captured (paste output in response).
+If test fails: RULE 2 (check test first) → RULE 3 (`systematic-debugging`) → RULE 6 (verify consumers).
 
-### GATE: Verification Script (automated, mandatory)
+### GATE: Verification Script
 
-After all tasks complete, run:
-
-```bash
-bash ~/.claude/scripts/verify-dev.sh
-```
-
-This enforces RULE 1 (tests pass), RULE 4 (new code has tests), RULE 6 (scope check).
-
-- **BLOCKED** → return to Phase 4, fix failures.
-- **WARNING** → document reason, then proceed.
-- **VERIFIED** → proceed to Stage 3.
-
-Do NOT proceed to DELIVER without VERIFIED or documented WARNING.
+After all tasks: `bash ~/.claude/scripts/verify-dev.sh [--research|--cicd]`
+- **BLOCKED** → return to P7. | **WARNING** → document reason. | **VERIFIED** → proceed.
+- Do NOT proceed to DELIVER without VERIFIED or documented WARNING.
 
 ---
 
-# STAGE 3: DELIVER
+# STAGE 3: DELIVER (P8-P10)
 
-Contains Phase 5, Phase 6, Phase 7.
-
-## Phase 5: DOUBLE-VERIFY
+## P8: VERIFY
 
 Invoke `verification-before-completion` skill, then:
 
-1. **Evidence-first**: Fresh test suite output with specific counts.
-2. **Regression scan**: Compare baseline vs current — any new failures = investigate.
-3. **Spec audit** (STANDARD/DEEP): Re-read proposal.md scope → nothing missed?
-4. **Scope check**: `git diff` — only expected files changed?
+| Check | DEVELOP | RESEARCH | CICD |
+|-------|---------|----------|------|
+| **Evidence** | Fresh test output with counts | All questions answered? | Dry-run passes? |
+| **Regression** | Baseline vs current (0 new failures) | Report coherent? | Rollback tested? |
+| **Spec audit** | Re-read proposal.md scope | All sources checked? | No secrets exposed? |
+| **Scope** | `git diff` — only expected files | Notes saved (count)? | Only expected config changed? |
+| **Real-data** | Test with production-like data | Findings cross-referenced? | Health check post-change? |
 
-If ANY check fails → loop back to Phase 4.
+If ANY check fails → loop back to P7.
 
-## Phase 6: SHIP
+## P9: SHIP
 
-1. **Mandatory code review**: Dispatch `requesting-code-review` subagent.
-   This is NOT optional. Skipping = skipping Phase 6.
-   - Fix Critical issues immediately.
-   - Fix Important issues before proceeding.
-   - Minor/Style: fix or document why deferred.
-2. **Final gate**: `bash ~/.claude/scripts/verify-dev.sh` one more time.
-3. **Create PR**: `finishing-a-development-branch` skill.
-   PR body: Summary, Specs link, Test Evidence (pasted output), Tasks Completed.
-4. **Push** to remote.
+| Task Type | Steps |
+|-----------|-------|
+| **DEVELOP** | 1. Code review (`requesting-code-review`) → fix Critical/Important. 2. `verify-dev.sh` final gate. 3. `finishing-a-development-branch` → PR. 4. Push (ask user). 5. DEEP: `gh run watch`. |
+| **RESEARCH** | 1. Self-review report for accuracy. 2. Deliver: report + claudemem notes. 3. Present Goal/Done/Next summary. |
+| **CICD** | 1. Apply change (with user confirmation). 2. Monitor (`gh run watch` / health check). 3. Verify health. 4. Document in runbook if new pattern. |
 
-### CHECKPOINT 2: Developer reviews PR
+### CHECKPOINT 2: Developer reviews deliverable
+- DEVELOP: "PR ready with X/X tests passing, 0 regressions."
+- RESEARCH: "Report complete, X notes saved, all questions answered."
+- CICD: "Change applied, pipeline healthy, rollback documented."
 
-"PR ready with X/X tests passing, 0 regressions. Review and approve."
+## P10: ARCHIVE
 
-This is the ONLY human input after BUILD.
+| Action | DEVELOP | RESEARCH | CICD |
+|--------|---------|----------|------|
+| **Specs** | `/opsx:archive` (STANDARD/DEEP) | N/A | N/A |
+| **Memory** | `claudemem note add` summary | `claudemem note add` findings | `claudemem note add` change |
+| **Worktree** | Cleanup if used | N/A | N/A |
+| **Wrapup** | `/wrapup` (DEEP) | `/wrapup` (STANDARD/DEEP) | `/wrapup` (DEEP) |
+| **Summary** | Goal/Done/Next | Goal/Done/Next | Goal/Done/Next |
 
-## Phase 7: ARCHIVE
+---
 
-1. `/opsx:archive` — merge delta specs into openspec/specs/ (STANDARD/DEEP).
-2. `claudemem note add` — save change summary + key decisions.
-3. Cleanup worktree if used.
-4. Present Goal/Done/Next summary.
+## PLAN MODE INTEGRATION
+
+When Plan Mode is active simultaneously with /dev:
+1. **/dev's workflow takes PRIORITY** over Plan Mode's 5-phase workflow
+2. Use Plan Mode's file as output location for /dev's plan (P5)
+3. Map: Plan Mode "Understand" = /dev P0-P5, Plan Mode "Design" = /dev P5
+4. Status blocks go in conversation output (not plan file)
+5. Use AskUserQuestion for /dev checkpoints (CHECKPOINT 1 & 2)
+6. Call ExitPlanMode after P5 (CHECKPOINT 1 approved) to begin BUILD stage
 
 ---
 
 ## THE 7 VERIFICATION RULES
 
-Non-negotiable. Rules 1, 4, 5, 6 are enforced by `verify-dev.sh`.
-Rules 2, 3, 7 are enforced by the Protocol and Phase structure.
-
 | Rule | Text | Enforcement |
 |------|------|-------------|
-| **1: DOUBLE-VERIFY** | Every "done" needs fresh test output with counts. Never "should work." | verify-dev.sh runs full test suite |
-| **2: AUDIT-DRIVEN** | Test fails? Check TEST first, then CODE. | TDD Protocol Step 3 |
-| **3: ROOT CAUSE** | Don't fix symptoms. Surface or design-level? | Phase 0 investigation + tier escalation |
-| **4: REGRESSION** | After EVERY change, run FULL test suite. | TDD Protocol Step 3 + verify-dev.sh |
-| **5: CICD** | "Done" = tests pass locally AND CI passes. | verify-dev.sh + DEEP tier CI wait |
-| **6: CLOSED-LOOP** | Created file → verify imported. Changed config → verify consumers. | verify-dev.sh scope check |
-| **7: CROSS-SESSION** | Before: claudemem search + openspec/specs/. After: note + archive. | Phase 0 (before) + Phase 7 (after) |
+| **R1: DOUBLE-VERIFY** | Every "done" needs fresh evidence. Never "should work." | verify-dev.sh (DEVELOP), coverage check (RESEARCH) |
+| **R2: AUDIT-DRIVEN** | Test fails? Check TEST first, then CODE. | TDD Protocol VERIFY step |
+| **R3: ROOT CAUSE** | Don't fix symptoms. Surface or design-level? | P1 investigation + tier escalation |
+| **R4: REGRESSION** | After EVERY change, run FULL test suite. | TDD VERIFY + verify-dev.sh |
+| **R5: CICD** | "Done" = passes locally AND CI passes. | verify-dev.sh + DEEP CI wait |
+| **R6: CLOSED-LOOP** | Created file → verify imported. Changed config → verify consumers. | verify-dev.sh scope check |
+| **R7: CROSS-SESSION** | Before: claudemem search. After: note + archive + /wrapup. | P1 (before) + P10 (after) |
 
 ---
 
 ## OVERRIDE FLAGS
 
-- `/dev --quick` — Force QUICK tier (skip investigation)
-- `/dev --deep` — Force DEEP tier (maximum thoroughness)
-- `/dev --no-spec` — Skip OpenSpec (for non-behavioral changes like refactors)
-- `/dev --no-pr` — Auto-commit without PR (for quick fixes on feature branches)
+| Flag | Effect |
+|------|--------|
+| `--quick` | Force QUICK tier (skip brainstorm/spec/plan) |
+| `--deep` | Force DEEP tier (maximum thoroughness) |
+| `--no-spec` | Skip OpenSpec (refactors, non-behavioral) |
+| `--no-pr` | Auto-commit without PR (quick fixes on feature branches) |
+| `--research` | Force RESEARCH task type |
+| `--cicd` | Force CICD task type |
