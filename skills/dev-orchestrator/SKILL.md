@@ -14,66 +14,133 @@ Developer describes what they want → AI classifies, investigates, plans, execu
 verifies, and delivers — with structural enforcement at every phase.
 
 ```
-UNDERSTAND ──[CHECKPOINT 1]──> BUILD ──[GATE]──> DELIVER ──[CHECKPOINT 2]──>
-P0-P5                          P6-P7             P8-P10
+UNDERSTAND ──[GATE]──> BUILD ──[GATE]──> DELIVER ───>
+P0-P5   (1 optional clarify)   P6-P7    P8-P10 (full auto)
+Zero mandatory checkpoints — see CONTINUITY CONTRACT
 ```
 
 ---
 
-## CONTINUITY CONTRACT (end-to-end auto-run)
+## CONTINUITY CONTRACT (zero-checkpoint, full-auto) — v3
 
-**Once /dev starts, it owns the task until P10 ARCHIVE, or a CHECKPOINT, or an
-explicit error escalation.** This contract governs when /dev pauses vs continues.
+**Once /dev starts, it owns the task from P0 to P10 ARCHIVE. Zero mandatory
+checkpoints.** /dev is modelling a senior engineer's end-to-end workflow: they
+don't stop every 15 minutes to ask "should I continue?". They stop only when
+something genuinely demands human input.
 
-### /dev MUST NOT stop between phases just because a phase finished.
-Proceed directly from P<N> status block to P<N+1> without user prompting,
-unless one of the three legitimate pause reasons below applies.
+### Design evolution (claudemem note 271c6900, 2026-03-08)
 
-### Three legitimate pauses (the ONLY ones)
+| Version | Checkpoints | Philosophy |
+|---------|------------|-----------|
+| v0.1 | 2 (Spec + PR) | Conservative: human gates at intent + delivery |
+| v0.3 | 1 (Spec only) | PR Review redundant after TDD + verify + regression |
+| v0.5 | confidence-based | Auto-approve when AI confidence high |
+| **v3 (current)** | **0 mandatory** | **Full auto, interrupt ONLY on genuine anomaly** |
 
-1. **CHECKPOINT 1** (after P5 PLAN) — human approves the plan before BUILD
-2. **CHECKPOINT 2** (after P9 SHIP) — human reviews deliverable before push/merge
-3. **External wait** (CI, long build, agent teams, deploy health) — enters a
-   LOOP pattern via `ScheduleWakeup`, automatically resumes on signal
+### Three legitimate pauses (ONLY these — nothing else)
 
-Any other "stop and ask" is a protocol violation. If you find yourself unsure
-→ pick the safer default and note it in the next status block, don't halt.
+1. **REQUIREMENT CLARIFICATION** (at start of P3 BRAINSTORM, one-shot)
+   Fires ONLY when the user's requirement has load-bearing ambiguity that AI
+   cannot resolve via claudemem + codebase + web + DAO reasoning. See the
+   "Requirement Clarification Gate" section below for the test.
+   If requirement is specific enough → skip entirely, no pause.
+
+2. **EXTERNAL WAIT** (during P7/P8/P9)
+   CI / long build / agent teams / deploy health — enters a LOOP pattern via
+   `ScheduleWakeup`, resumes automatically on signal. This is not really a
+   "pause for human" — it's cached dormancy with automatic resume.
+
+3. **ANOMALY ESCALATION** (anywhere)
+   AI encounters a decision it cannot make with confidence ≥70% after using
+   all available resources (claudemem, codebase, web, DAO, evidence). Covers:
+   - Hard red-line trigger (secret about to be committed, destructive DB op,
+     .env modification, deny-listed command)
+   - Rules-conflict with no override precedent (e.g., user instruction says X,
+     CLAUDE.md says not-X, and context cannot arbitrate)
+   - Loop `exit-escalate` verdict from any Pattern 1-4
+
+Any other "stop and ask" = **protocol violation**. Examples of forbidden stops:
+- "P3 BRAINSTORM done — approve to proceed?" ❌
+- "Plan created — should I start?" ❌
+- "PR ready — want me to push?" ❌ (just push; user reviews in git log / GitHub)
+- "Verify passed — archive now?" ❌
+- "I'm not sure whether to X or Y, which do you want?" ❌ (use DAO + evidence;
+  only escalate if genuinely >30% probability of being wrong)
+
+### Requirement Clarification Gate (P3 prefix, at most once per /dev invocation)
+
+**Test — do I need to clarify?** Answer these before P3 BRAINSTORM:
+
+1. Can I name the target file(s) / module(s) from the user's words + P1 findings?
+2. Can I name the success criterion in one concrete sentence (e.g., "function
+   X returns Y when Z", not "make it better")?
+3. Do I have ≥70% confidence on the implementation approach from DAO +
+   codebase patterns + claudemem?
+
+If all three are YES → proceed to P3, no pause.
+If any is NO → ONE `AskUserQuestion` with 2-4 pointed options to resolve the
+specific ambiguity. Phrase it like a senior engineer: "I see three ways this
+could be interpreted — A, B, C. Which did you have in mind?"
+
+**Calibration examples**:
+
+| User said | Decision |
+|-----------|----------|
+| "fix the 500 in the video upload endpoint" | Specific → skip gate |
+| "add refresh-token support to JWT auth per auth0 pattern" | Specific → skip gate |
+| "make the pipeline faster" | Ambiguous: which pipeline? how fast? → ask |
+| "add auth" | Ambiguous: OAuth2 vs JWT vs session? → ask |
+| "refactor this mess" (with file in context) | Ambiguous: what mess? preserve API? → ask |
+| "add tests for the user service" | Specific → skip gate (AI can pick TDD patterns from repo) |
 
 ### Auto-Loop Default (STANDARD and DEEP tiers)
 
-- **STANDARD / DEEP**: Loop is **automatically enabled** in every phase that
+- **STANDARD / DEEP**: Loop is **automatically enabled** for every phase that
   has an "external wait" signal. User does NOT need to pass `--loop`.
 - **QUICK**: Loop is **automatically disabled** — every QUICK-tier work is by
   definition short enough to block on without cache cost.
-- **Override**: `--no-loop` forces blocking mode even on STANDARD/DEEP (useful
-  when the user wants to watch CI live rather than cede control to the loop).
+- **Override**: `--no-loop` forces blocking mode even on STANDARD/DEEP (e.g.,
+  when user wants to watch CI live).
 
-### End-to-End Sequencing Examples
+### End-to-End Sequencing Examples (v3 zero-checkpoint)
 
-**DEEP DEVELOP task with CI**:
+**DEEP DEVELOP task with CI, requirement clear**:
 ```
-P0 → P1 → P2 → P3 → P4 → P5 → [CHECKPOINT 1: pause for human]
-↓ (approved)
-P6 → P7 (TDD per task, Agent Teams may auto-loop at merge point)
+P0 → P1 → P2 → P3 (requirement clear, skip clarify gate) → P4 → P5
+  → P6 → P7 (TDD per task, Agent Teams may auto-loop at merge)
   → P8 (verify; if long-running → auto-loop Pattern 2)
-  → P9 (push PR; auto-enter LOOP Pattern 1 for CI wait)
-  → [CI green] → [CHECKPOINT 2: pause for human]
-↓ (approved)
-P10 → DONE (session ends gracefully)
+  → P9 (push PR; auto-enter LOOP Pattern 1 for CI wait → green)
+  → P10 ARCHIVE → DONE (session ends)
 ```
+Zero stops unless loop-escalate or anomaly fires. User sees full /dev run in
+one conversational turn (plus async wakes for CI).
 
-**STANDARD DEVELOP task without CI wait**:
+**DEEP DEVELOP task with ambiguous requirement**:
 ```
-P0 → P1 → P2 → P3 → P4 → P5 → [CHECKPOINT 1] → ... → P9 (push) → [CHECKPOINT 2] → P10 → DONE
+P0 → P1 → P2 → [REQUIREMENT CLARIFICATION: 1 AskUserQuestion]
+↓ (answered)
+P3 → P4 → P5 → P6 → ... → P10 → DONE
 ```
-No loop invocation needed (no external waits), but the /dev session still runs
-end-to-end without user needing to say "continue" between phases.
+One pause at the start — where clarification is highest-value — then full auto.
+
+**QUICK task (bug fix)**:
+```
+P0 → P1 → P2 → [root cause] → TDD → verify → commit → DONE
+```
+Zero pauses. Ever.
 
 ### Why this matters
 
-Without this contract, /dev stops 10+ times in a DEEP task ("P1 done, continue?"
-"P3 done, continue?"). With it, /dev stops 2-3 times total: the two CHECKPOINTs
-and any loop-failure escalations. User cognitive load drops by 5-10×.
+v3 removes the 5-10× user-cognitive-load penalty of v2 (which stopped at 2
+checkpoints per task). A user running 5 /dev tasks in a day went from "10+
+interruptions" to "0-2 interruptions" (one clarification if requirement is
+ambiguous, zero otherwise). This frees the user to context-switch to other
+work while /dev runs, matching how you'd delegate to a trusted senior engineer.
+
+**Trade-off accepted**: if AI misjudges requirement clarity and proceeds
+without asking, it may build the wrong thing and waste one cycle. This cost
+is explicit and small vs. the cost of asking at every phase boundary. The
+anomaly-escalation rule is the safety net for high-stakes misjudgments.
 
 ---
 
@@ -101,7 +168,8 @@ MUST emit a loop-specific block BEFORE the regular phase block:
 
 ```
 ┌─ LOOP WAKE: P<N>/<phase-name> (iter <k>/<max>) ─
-│ Elapsed: <m>m | Next delay: <s>s (cache <hit|miss>)
+│ Elapsed: ~<iter × delay>m (estimated, not wall-clock)
+│ Next delay: <s>s (expected-cache: hit if ≤270s, miss if >300s)
 │ Signal: <pending|pass|fail|timeout|unknown>
 │ Exit target: <success cond> | <fail cond>
 │ Action this cycle: <what was done this wake>
@@ -109,8 +177,12 @@ MUST emit a loop-specific block BEFORE the regular phase block:
 └────────────────────────────────────────────────
 ```
 
+Fields Claude cannot directly observe (wall-clock across wakes, actual cache
+hit/miss state) are marked as estimated/expected — derived from iter × delay.
+Do NOT fabricate precise numbers; use the estimates.
+
 If `iter >= max` or `cost cap hit` → Decision MUST be `exit-failure` or
-`escalate`. Do NOT silently continue past the declared cap.
+`exit-escalate`. Do NOT silently continue past the declared cap.
 
 ---
 
@@ -147,19 +219,27 @@ Show one-line status per check. Do NOT ask permission — just do it.
 
 Detect primary project language to enable language-aware agent delegation in P7/P9:
 
-| Indicator File | Language | ECC Reviewer Agent | ECC Build Resolver |
+Detection rules (evaluate in order — first match wins):
+
+| Indicator (AND conditions) | Language | ECC Reviewer Agent | ECC Build Resolver |
 |---------------|----------|-------------------|-------------------|
-| `package.json` / `tsconfig.json` | TypeScript | `typescript-reviewer` | `build-error-resolver` |
+| `tsconfig.json` present | TypeScript | `typescript-reviewer` | `build-error-resolver` |
+| `package.json` present AND `tsconfig.json` absent AND ≥1 `.ts`/`.tsx` file in project | TypeScript | `typescript-reviewer` | `build-error-resolver` |
+| `package.json` present AND no `.ts`/`.tsx` files | JavaScript | `typescript-reviewer` (covers JS) | `build-error-resolver` |
 | `pyproject.toml` / `setup.py` / `requirements.txt` | Python | `python-reviewer` | — |
 | `go.mod` | Go | `go-reviewer` | `go-build-resolver` |
 | `Cargo.toml` | Rust | `rust-reviewer` | `rust-build-resolver` |
-| `pom.xml` / `build.gradle.kts` (Java) | Java | `java-reviewer` | `java-build-resolver` |
-| `build.gradle.kts` (Kotlin) | Kotlin | `kotlin-reviewer` | `kotlin-build-resolver` |
+| `build.gradle.kts` present | Kotlin | `kotlin-reviewer` | `kotlin-build-resolver` |
+| `pom.xml` OR `build.gradle` (Groovy DSL, no `.kts`) | Java | `java-reviewer` | `java-build-resolver` |
 | `CMakeLists.txt` / `*.cpp` | C++ | `cpp-reviewer` | `cpp-build-resolver` |
 | `Package.swift` | Swift | — | — |
 | `pubspec.yaml` | Flutter/Dart | `flutter-reviewer` | — |
 
 Record detected language in P2 status block. If mixed-language, note primary + secondary.
+
+Notes:
+- `package.json` alone does NOT imply TypeScript — almost every JS project has it. Require `tsconfig.json` OR `.ts`/`.tsx` files as the disambiguator.
+- `build.gradle.kts` is Kotlin DSL, overwhelmingly Kotlin projects. Java projects using Gradle typically use `build.gradle` (Groovy). Assigning `.kts` to Kotlin eliminates the previous Java/Kotlin collision.
 
 ### Source Evaluation (applied to ALL P1 findings)
 
@@ -278,9 +358,10 @@ Invoke `brainstorming` skill. Do NOT skip "because it seems simple."
 | RESEARCH | Create research plan | Questions to answer, sources per question, deliverable per section |
 | CICD | Create change plan | Steps, dry-run command, verify command, rollback command |
 
-### CHECKPOINT 1: Developer reviews plan/specs
-Present plan summary via AskUserQuestion.
-This is the ONLY human input before BUILD starts.
+<!-- CHECKPOINT 1 REMOVED in v3 zero-checkpoint model. Plan summary is written
+to `docs/plans/YYYY-MM-DD-<name>.md` (DEVELOP) or equivalent artifact; user can
+review in git diff or PR. If requirement was ambiguous, clarification already
+happened at P3 prefix (Requirement Clarification Gate). No pause here. -->
 
 ---
 
@@ -386,12 +467,18 @@ that runs >2 min:
 
 | Task Type | Steps |
 |-----------|-------|
-| **DEVELOP** | 1. `/codex-review` (Codex + 5 Claude agents + Haiku cross-scorer — supersedes `requesting-code-review`) → fix Critical/Important. 2. STANDARD+: `security-reviewer` agent for auth/crypto/input code. 3. `verify-dev.sh` final gate. 4. `finishing-a-development-branch` → PR. 5. Push (ask user). 6. DEEP: enter LOOP Pattern 1 (CI wait) via ScheduleWakeup — NOT blocking `gh run watch`. |
+| **DEVELOP** | 1. `/codex-review` (Codex + 5 Claude agents + Haiku cross-scorer — supersedes `requesting-code-review`) → fix Critical/Important. 2. STANDARD+: `security-reviewer` agent for auth/crypto/input code. 3. `verify-dev.sh` final gate. 4. `finishing-a-development-branch` → PR. 5. **Push automatically** (no confirmation — user reviews via git log / GitHub PR). Safety exception: if branch is `master` / `main` / `production`, anomaly-escalate to user. 6. DEEP: enter LOOP Pattern 1 (CI wait) via ScheduleWakeup — NOT blocking `gh run watch`. On CI green → proceed directly to P10. |
 | **RESEARCH** | 1. Self-review report for accuracy. 2. Deliver: report + claudemem notes. 3. Present Goal/Done/Next summary. |
-| **CICD** | 1. Apply change (with user confirmation). 2. Monitor via LOOP Pattern 1 or health check. 3. Verify health. 4. Document in runbook if new pattern. |
+| **CICD** | 1. Apply change (anomaly-escalate to user only if change affects production infra; else proceed). 2. Monitor via LOOP Pattern 4 (Deploy Health) or blocking health check. 3. Verify health. 4. Document in runbook if new pattern. |
 
-### CHECKPOINT 2: Developer reviews deliverable
-- DEVELOP: "PR ready with X/X tests passing, 0 regressions."
+<!-- CHECKPOINT 2 REMOVED in v3 zero-checkpoint model. Deliverable summary is
+still emitted as part of the P9 status block, but /dev proceeds directly to
+P10 ARCHIVE without asking. User reviews via PR on GitHub, git log, or the
+/wrapup report. If anomaly-escalation fires (see CONTINUITY CONTRACT), that's
+the only reason to pause after P9. -->
+
+**Deliverable summary** (emit as part of P9 status block, no pause):
+- DEVELOP: "PR #<n> ready with X/X tests passing, 0 regressions."
 - RESEARCH: "Report complete, X notes saved, all questions answered."
 - CICD: "Change applied, pipeline healthy, rollback documented."
 
@@ -414,8 +501,8 @@ When Plan Mode is active simultaneously with /dev:
 2. Use Plan Mode's file as output location for /dev's plan (P5)
 3. Map: Plan Mode "Understand" = /dev P0-P5, Plan Mode "Design" = /dev P5
 4. Status blocks go in conversation output (not plan file)
-5. Use AskUserQuestion for /dev checkpoints (CHECKPOINT 1 & 2)
-6. Call ExitPlanMode after P5 (CHECKPOINT 1 approved) to begin BUILD stage
+5. /dev v3 has NO mandatory checkpoints — Plan Mode's own approval flow is the only pause after P5 if Plan Mode is active
+6. Call ExitPlanMode after P5 (once Plan Mode approval received) to begin BUILD stage. Without Plan Mode, /dev proceeds directly from P5 to P6 (v3 zero-checkpoint default).
 
 ---
 
@@ -527,6 +614,13 @@ Before the FIRST `ScheduleWakeup` call of a loop, output this block inline:
 At least one of (success, failure, timeout) MUST fire within max_iter. If you
 can't state a concrete signal → don't start the loop (use blocking call instead).
 
+**Universal "unknown signal" circuit breaker** (applies to ALL patterns):
+If the signal probe returns `unknown` for ≥3 consecutive wakes (e.g., network
+errors, GitHub rate-limit, health endpoint timing out with no response),
+emit `exit-escalate` immediately — do NOT keep polling until max_iter.
+Rationale: sustained probe failure is an infrastructure problem, not the
+thing the loop is waiting for. Let the user fix the infra.
+
 ### Standard Patterns
 
 #### Pattern 1 — CI Wait (P9 DEEP, DEVELOP + CICD)
@@ -535,10 +629,14 @@ Trigger     : PR pushed via finishing-a-development-branch
 Signal      : gh pr checks <pr#> → pass | pending | fail
 Delay       : 270s while pending
 Max iter    : 20 (≈ 90 min — covers most CI runs)
-Success     : all checks green → proceed to P10 ARCHIVE
-Failure     : any check red → spawn fix subtask (new P7 cycle), re-push, restart loop iter counter
-Timeout     : escalate to user ("CI stuck > 90min, investigating")
-reason field: "CI wait iter <k>/20 — PR #<n> checks pending"
+Max fix-cycles : 3 (outer cap across restarts; 4th CI failure → exit-escalate)
+Success     : all checks green → exit-success → proceed to P10 ARCHIVE (no checkpoint)
+Failure     : any check red → IF fix-cycles < 3: spawn fix subtask (new P7 cycle),
+              re-push, restart iter counter, increment fix-cycle counter.
+              ELSE: exit-escalate (3 fix cycles exhausted — likely flaky infra or real bug)
+Timeout     : iter >= 20 with no signal change → exit-escalate
+Unknown     : signal = unknown for ≥3 consecutive wakes (probe errors, network, rate limit) → exit-escalate
+reason field: "CI wait iter <k>/20, fix-cycle <f>/3 — PR #<n> checks pending"
 ```
 
 #### Pattern 2 — Long Task (P7, P8)
@@ -605,11 +703,13 @@ ScheduleWakeup(
 
 ### Loop Interaction with CHECKPOINTs
 
-- CHECKPOINT 1 (after P5) and CHECKPOINT 2 (after P9) use `AskUserQuestion` — the
-  session pauses for the human. **Do NOT call ScheduleWakeup at checkpoints** —
-  it races against human response.
-- If a loop is active when a checkpoint fires, end the loop first (declare
-  `exit-success` or `exit-escalate`), then present the checkpoint.
+- v3 has NO mandatory CHECKPOINTs. The only pause points are (1) Requirement
+  Clarification Gate at P3 prefix (one-shot, at session start) and (2) Anomaly
+  Escalation (user-invoked by AI when decision confidence <70%). Neither happens
+  mid-loop — clarification is before loops begin, anomaly is from inside a loop.
+- **Do NOT call ScheduleWakeup while requesting human input via `AskUserQuestion`** —
+  it races against human response. If an anomaly fires mid-loop, emit
+  `exit-escalate` first, then raise `AskUserQuestion`.
 
 ---
 
