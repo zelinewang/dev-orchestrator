@@ -3,35 +3,50 @@
 Every /wrapup MUST include a "## Workflow Retrospective" section.
 Every session is a test session for the dev workflow itself.
 
-## Questions (answer honestly)
+## Evaluation dimensions (answer honestly)
 
-### Workflow evaluation
+### A. Phase compliance
 1. Did I follow investigate→plan→execute→verify→ship? Which phases skipped and why?
-2. Did I explore enough context before forming conclusions? Or jumped to solution too fast?
-3. Were there moments where user corrected my direction? What should I have done differently?
-4. Did hooks fire correctly? Any missed triggers? Any false positives?
+2. For bug tasks: did I check production LOGS before searching code? (deep-investigation rule)
+3. Did I emit status blocks after each phase?
 
-### Root cause of mistakes (if any)
-5. What was the core investigation failure? (e.g., didn't check logs, assumed without evidence)
-6. Was this a workflow design problem (missing step) or execution problem (knew step, skipped it)?
-7. What specific change to rules/hooks/skill would have prevented this mistake?
+### B. Investigation quality
+4. Did I search claudemem before starting? What did I find/miss?
+5. Did I use available MCPs when relevant? (context7 for docs, fetch for APIs, DB MCPs for data)
+6. Did I check existing codebase patterns before writing new code? (search-first principle)
+7. Did I explore WIDELY enough, or tunnel-visioned on first hypothesis? (counter-hypothesis check)
+8. For bugs: did I verify assumptions with EVIDENCE, or rely on inference?
 
-### Learning extraction
-8. What new pattern or lesson should be saved to claudemem?
-9. Should any rule be added/modified in dev-workflow/?
-10. Should any hook behavior be adjusted?
+### C. User corrections
+9. How many times did user redirect my approach? (0 = great, 1 = ok, 2+ = investigate why)
+10. What was the root cause of each correction? (shallow investigation, wrong assumption, missed context, confirmation bias, other)
+
+### D. Tool & context utilization
+11. Which tools/MCPs/skills/agents did I use? Which SHOULD I have used but didn't?
+12. Did I use worktree isolation when working in shared repo? (CLAUDE.md rule)
+13. Did I make good use of subagents for parallel work?
+
+### E. Hook effectiveness
+14. Fill the hook table below.
+
+### F. Workflow design feedback
+15. Was this a workflow DESIGN problem (missing step/rule) or EXECUTION problem (knew the rule, didn't follow it)?
+16. One specific improvement: what rule/hook/skill change would prevent the biggest mistake this session?
 
 ## Output format
 
 ```
-### What went well
-- [specific examples]
+### Phase compliance: [score/3]
+- [details]
 
-### What went wrong
-- [specific examples with root cause]
+### Investigation quality: [score/5]
+- [details, especially what was missed]
 
-### Workflow improvement suggestions
-- [actionable changes to rules/hooks/skill]
+### User corrections: [count] — root cause: [pattern]
+
+### Tool utilization gaps
+- Used: [list]
+- Should have used: [list with reason]
 
 ### Hook effectiveness
 | Hook | Triggered? | Correct? | Notes |
@@ -40,4 +55,8 @@ Every session is a test session for the dev workflow itself.
 | verify-on-commit | Y/N | ✅/⚠️/❌ | ... |
 | quality-gate | Y/N | ✅/⚠️/❌ | ... |
 | session-end | Y/N | ✅/⚠️/❌ | ... |
+
+### Workflow improvement
+- Design vs execution: [which]
+- Suggested change: [specific, actionable]
 ```
