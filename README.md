@@ -1,303 +1,242 @@
 # /dev — AI Development Orchestrator
 
-**One command. Any task type. Self-enforcing.**
+**One command. Any task. 4-layer enforcement.**
 
-`/dev` turns your AI coding agent into a complete development team — for code, research, and infrastructure tasks. Describe what you want in natural language — the orchestrator classifies, investigates, plans, executes, verifies, and delivers. You review twice: the plan and the deliverable. Everything else is automated and enforced.
+`/dev` turns Claude Code into an end-to-end development workflow — for code, research, and infrastructure tasks. Describe what you want → the orchestrator investigates, plans, executes, verifies, and ships. Zero mandatory human checkpoints. Deterministic hooks enforce quality gates automatically.
 
 ```
 You:   /dev "add user authentication with JWT and refresh tokens"
 
-AI:    ┌─ P1: INVESTIGATE ───────────────────────
-       │ Status: DONE | Sources: 5 (memory, code, specs, git, web)
-       │ Next: P2 CLASSIFY
+AI:    ┌─ INVESTIGATE ───────────────────────────
+       │ Status: DONE | Sources: memory, code, docs, git
+       │ Next: PLAN
        └─────────────────────────────────────────
 
-       ┌─ P2: CLASSIFY ─────────────────────────
-       │ Status: DONE
-       │ Task: DEVELOP | Tier: STANDARD
-       │ Next: P3 BRAINSTORM
+       ┌─ PLAN ─────────────────────────────────
+       │ Intent: build | Depth: deep
+       │ 8 subtasks, TDD per each
+       │ Next: EXECUTE
        └─────────────────────────────────────────
 
-       [Brainstorm → Specs → Plan...]
-
-       🛑 CHECKPOINT 1: Review specs? [looks good]
-
-You:   looks good
-
-AI:    [Worktree → TDD task 1/12 → ... → 12/12 ✓]
+       [TDD task 1/8 → ... → 8/8 ✓]
        [47/47 tests passing. 0 regressions.]
-       [PR #142 created]
 
-       🛑 CHECKPOINT 2: Review PR?
-
-You:   approved
-AI:    ✓ Specs archived. Memory saved. Done.
+       ┌─ SHIP ─────────────────────────────────
+       │ PR #142 created. CI green.
+       │ Progress saved to dev-progress/feat-jwt-auth.json
+       └─────────────────────────────────────────
 ```
 
-## What's New in v2
+## Architecture: 4-Layer Enforcement
 
-v2 was born from a self-audit that revealed **16% protocol compliance** in a real session. The protocol was well-designed but not self-enforcing — the AI could silently skip phases without consequence.
-
-### Key Changes
-
-| Feature | v1 | v2 |
-|---------|----|----|
-| **Task Types** | Code only | DEVELOP + RESEARCH + CICD |
-| **Enforcement** | Text suggestions | Mandatory phase status blocks |
-| **Phase Skipping** | Silent (no trace) | SKIP requires documented reason |
-| **Brainstorming** | "Pre-Phase 1" (skippable) | P3: MANDATORY |
-| **Phase Naming** | Confusing (Pre-Phase 1, Phase 0) | Clean P0-P10 |
-| **Plan Mode** | Conflicting workflows | /dev takes priority |
-| **Verification** | Code tests only | +research coverage +CICD secrets scan |
-| **Override Flags** | 4 (--quick/deep/no-spec/no-pr) | 6 (+--research/--cicd) |
-
-## Problem
-
-AI coding today is "vibe coding" — you chat, the AI writes code, but:
-
-- **Requirements scatter** across chat history and disappear when context fills up
-- **No verification discipline** — AI says "done" but tests aren't actually passing
-- **Regression blindness** — fixing one thing silently breaks another
-- **Tool overload** — 40+ skills/tools available, but you must remember which to invoke when
-- **Cross-session amnesia** — start a new chat, lose all context from the previous one
-- **Non-code tasks unsupported** — research, CICD, and documentation tasks forced into code workflow
-
-## Solution
-
-`/dev` is a meta-orchestrator that chains your existing tools into an end-to-end pipeline with structural enforcement. It doesn't replace your tools — it conducts them like an orchestra.
+Designed from 19 primary research sources (Anthropic, OpenAI, Stripe, arXiv, Martin Fowler, Mitchell Hashimoto). Core insight: **deterministic infrastructure > prompt-level guidance**.
 
 ```
-Developer: /dev "description"
-    │
-    ▼
-┌── P1: INVESTIGATE (5 min, read-only) ───────────────────────┐
-│   Search memory → Read code → Check specs → Web research     │
-│   → Evidence-based classification + tier recommendation      │
-└────────────┬────────────────────┬───────────────────────────┘
-             │                    │
-    ┌────────▼─────────┐  ┌─────▼─────────────────────────────┐
-    │ P2: CLASSIFY      │  │ Task Types                         │
-    │ DEVELOP/RESEARCH  │  │ ┌─ DEVELOP: Full TDD + PR          │
-    │ /CICD + Tier      │  │ ├─ RESEARCH: Investigate + report  │
-    │                   │  │ └─ CICD: Dry-run + rollback verify │
-    └────────┬─────────┘  └───────────────────────────────────┘
-             │
-    ┌────────▼────────────────────────────────┐
-    │ QUICK          STANDARD / DEEP           │
-    │                                          │
-    │ Root cause     1. Brainstorm (mandatory)  │
-    │ → TDD fix      2. Specs / proposal        │
-    │ → Verify       3. Plan → you review       │
-    │ → Commit       4. Setup (worktree/clone)  │
-    │ → Memory       5. Execute (TDD/research)  │
-    │                6. Double-verify            │
-    │                7. Ship → you review        │
-    │                8. Archive + memory         │
-    └─────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│  Layer 4: File-Backed State (survives everything)    │
+│  .claude/dev-progress/<branch>.json                  │
+├─────────────────────────────────────────────────────┤
+│  Layer 3: Hooks (100% deterministic, zero context)   │
+│  SessionStart → inject progress                      │
+│  PreToolUse → verify-on-commit gate                  │
+│  PostToolUse → auto-lint Python                      │
+│  Stop → persist state                                │
+├─────────────────────────────────────────────────────┤
+│  Layer 2: Rules + CLAUDE.md (~80%, compact-safe)     │
+│  phases.md, deep-investigation.md, tdd-protocol.md   │
+│  wrapup-retrospective.md                             │
+├─────────────────────────────────────────────────────┤
+│  Layer 1: /dev Skill (on-demand, full guidance)      │
+│  739 lines — only loaded when /dev is invoked        │
+└─────────────────────────────────────────────────────┘
 ```
 
-### Three Task Types (Auto-Classified)
+| Layer | Compliance | Survives compact? | Context cost |
+|-------|-----------|-------------------|-------------|
+| Hooks | **100%** (deterministic) | ✅ always active | Zero |
+| Rules + CLAUDE.md | **~80%** (probabilistic) | ✅ re-injected | ~900 tokens |
+| /dev Skill | **~70%** (probabilistic) | ❌ ephemeral | ~3,000 tokens (on-demand) |
 
-| Type | When | Key Differences |
-|------|------|----------------|
-| **DEVELOP** | Code change needed (feature, bug, refactor) | Full TDD + worktree + PR |
-| **RESEARCH** | Investigate, document, analyze, learn | No TDD/worktree, keep brainstorm/verify/wrapup |
-| **CICD** | Pipeline, infra, deploy, config change | No TDD, add dry-run + rollback verification |
+## Version History
 
-### Three Tiers (Auto-Detected)
+| Version | Key Change | Enforcement |
+|---------|-----------|-------------|
+| v1.0 | Core orchestrator, 3 tiers | Text suggestions (AI can skip) |
+| v2.0 | TDD Protocol + verify-dev.sh | Mandatory status blocks |
+| v2.1 | Task routing (DEVELOP/RESEARCH/CICD) | Phase status blocks (16% compliance measured) |
+| v3.0 | Zero-checkpoint continuity contract | AI self-enforces (aspirational) |
+| **v4.0** | **4-layer harness architecture** | **Hooks (100%) + Rules (80%) + Skill (on-demand)** |
 
-| Tier | When | What Happens | Time |
-|------|------|--------------|------|
-| **QUICK** | Bug fix, small change | Root cause → TDD fix → verify → commit | 5-15 min |
-| **STANDARD** | New feature, behavior change | Full P0-P10 phases, all gates | 30-120 min |
-| **DEEP** | Architecture, multi-module, unclear root cause | Full phases + Agent Teams + CI wait + /wrapup | 2-8 hrs |
+## How It Works
 
-**Detection is investigation-based, not keyword-based.** The orchestrator spends 5 minutes reading your codebase before deciding.
+### Intent Routing (from ReSpecV philosophy)
 
-## Self-Enforcement
+Route by intent, not file count:
 
-Every phase outputs a mandatory status block — no silent skipping allowed:
+| Intent | When | Workflow |
+|--------|------|---------|
+| **Build** | New feature, architecture | Full: investigate → plan → execute → verify → ship |
+| **Fix** | Bug, hotfix, incident | Evidence-first: logs → root-cause → TDD fix → verify |
+| **Research** | Investigate, analyze, learn | Investigate → notes → report (no TDD/worktree) |
+| **Deploy** | Pipeline, infra, config | Impact + rollback strategy → dry-run → apply → monitor |
+| **Trivial** | Typo, comment, config | Skip to execute |
 
+### Core Phases
+
+1. **Investigate** — Search claudemem, read code, check docs (context7), read git log. For bugs: **check production logs FIRST**.
+2. **Plan** — State intent + success criteria + affected files in one status block.
+3. **Execute** — TDD per subtask: RED → GREEN → VERIFY → COMMIT. Language-aware reviewers.
+4. **Verify** — Auto-enforced by pre-commit hook (`exit 2` if verify-dev.sh fails). Manual: `/verify`.
+5. **Ship** — Push feature branch, create PR, update `dev-progress/<branch>.json`.
+
+### Deep Mode (`--deep`)
+
+Adds: agent teams for parallel subtasks, ScheduleWakeup for CI wait (4 patterns: CI-wait, long-build, agent-merge, deploy-health), language-aware ECC reviewers, OpenSpec integration.
+
+## Hooks (Deterministic Enforcement)
+
+All hooks run on the host machine at zero context cost. They fire automatically — no invocation needed.
+
+### `dev-verify-on-commit.sh` (PreToolUse:Bash)
+**Two-tier gate on every `git commit`:**
+- `verify-dev.sh` failure → `exit 2` (hard block — cannot be auto-accepted)
+- `ruff` lint issues → `additionalContext` warning (visible but non-blocking)
+
+### `dev-quality-gate.sh` (PostToolUse:Edit|Write)
+Auto-formats Python files with `ruff format --quiet` after every edit. Non-blocking.
+Production validated: 3/3 correct triggers, zero false positives.
+
+### `dev-session-start.sh` (SessionStart)
+Reads branch-scoped `dev-progress/<branch>.json` and injects task state via `additionalContext`. Enables cross-session resume. Skips if no active task (>24h stale).
+
+### `dev-session-end.sh` (Stop)
+Updates `updated_at` timestamp in progress file for continuity.
+
+## Rules (Compact-Safe Guidance)
+
+Rules files in `~/.claude/rules/dev-workflow/` are loaded at every session start and survive context compaction. ~80% compliance (probabilistic but durable).
+
+| File | Purpose | Lines |
+|------|---------|-------|
+| `phases.md` | 5 phases, intent routing, status blocks, escalation | 35 |
+| `deep-investigation.md` | Logs-first for bugs, counter-hypothesis check | 34 |
+| `tdd-protocol.md` | VERIFY+COMMIT steps, when-to-apply by intent | 16 |
+| `wrapup-retrospective.md` | 6-dimension session retrospective template | 43 |
+
+## Cross-Session State
+
+Branch-scoped JSON progress files at `.claude/dev-progress/<branch>.json`:
+
+```json
+{
+  "task": "Add JWT authentication",
+  "intent": "build",
+  "phase": "execute",
+  "subtasks": [
+    {"name": "Create auth middleware", "status": "done"},
+    {"name": "Add token refresh", "status": "in_progress"}
+  ]
+}
 ```
-┌─ P<N>: <NAME> ────────────────────────────────
-│ Status: DONE | SKIP <reason> | ADAPT <explanation>
-│ Task: <type> | Tier: <tier>
-│ Key actions: <what was done>
-│ Next: P<N+1>
-└────────────────────────────────────────────────
-```
 
-This is the core innovation of v2: phases are structurally visible, not silently skippable.
+Helper script: `dev-progress-update.sh create|phase|subtask-done|subtask-add|done`
 
-## 7 Verification Rules
+## Wrapup Retrospective
 
-Built into every phase, so you never need to remind the AI:
+Every `/wrapup` includes a mandatory Phase 3.5 evaluating 6 dimensions:
+- **A.** Phase compliance (did I follow the workflow?)
+- **B.** Investigation quality (did I explore enough context?)
+- **C.** User corrections (count + root cause)
+- **D.** Tool utilization (used vs should-have-used)
+- **E.** Hook effectiveness (trigger table)
+- **F.** Workflow design feedback (design problem vs execution problem)
 
-1. **Double-Verify** — Every "done" backed by fresh evidence with counts
-2. **Audit-Driven** — Test fails? Check if the test is wrong first
-3. **Root Cause** — Don't patch symptoms. Find the design-level issue
-4. **Regression Paranoia** — Full test suite after EVERY change
-5. **CICD Awareness** — "Done" = passes locally AND CI passes
-6. **Closed-Loop** — Every cycle closes its own loop
-7. **Cross-Session** — Search memory before starting, save knowledge after
-
-## Requirements
-
-### Required
-
-- [Claude Code](https://claude.ai/claude-code) v1.0.33+
-- [superpowers](https://github.com/obra/superpowers) plugin — TDD, debugging, planning, verification, git workflows
-
-### Recommended
-
-- [OpenSpec](https://github.com/Fission-AI/OpenSpec) v1.2.0+ — spec-driven development (`npm install -g @fission-ai/openspec@latest`)
-- [feature-dev](https://github.com/anthropics/claude-code-plugins) plugin — code-explorer, code-architect, code-reviewer agents
-- [claudemem](https://github.com/zelinewang/claudemem) — cross-session persistent memory
-- [commit-commands](https://github.com/anthropics/claude-code-plugins) plugin — git commit/push/PR workflows
-
-### Optional
-
-- Agent Teams experimental feature (for DEEP tier competing hypothesis debugging)
+This turns every session into a test session for the dev workflow itself.
 
 ## Installation
 
-### Option A: Plugin Install (recommended)
+### Option A: Via claude-code-config (recommended for existing users)
 
 ```bash
-# From GitHub (when published)
-claude plugins install dev-orchestrator
-
-# Or from local directory
-claude --plugin-dir /path/to/dev-orchestrator
+cd ~/claude-code-config && git pull
+# Hooks, rules, and scripts are in global/
+# Run install.sh to sync to ~/.claude/
+bash install.sh
 ```
 
 ### Option B: Manual Install
 
 ```bash
-# Copy skill + scripts
-mkdir -p ~/.claude/skills/dev-orchestrator ~/.claude/scripts
-cp skills/dev-orchestrator/SKILL.md ~/.claude/skills/dev-orchestrator/
-cp scripts/verify-dev.sh ~/.claude/scripts/
-chmod +x ~/.claude/scripts/verify-dev.sh
+# Hooks (user-level, register in ~/.claude/settings.json)
+cp hooks/dev-*.sh ~/.claude/hooks/
+chmod +x ~/.claude/hooks/dev-*.sh
 
-# Copy command
+# Rules
+mkdir -p ~/.claude/rules/dev-workflow
+cp rules/dev-workflow/*.md ~/.claude/rules/dev-workflow/
+
+# Scripts
+cp scripts/dev-progress-update.sh ~/.claude/scripts/
+cp scripts/verify-dev.sh ~/.claude/scripts/
+chmod +x ~/.claude/scripts/dev-*.sh ~/.claude/scripts/verify-dev.sh
+
+# Skill
+mkdir -p ~/.claude/skills/dev-orchestrator
+cp skills/dev-orchestrator/SKILL.md ~/.claude/skills/dev-orchestrator/
+
+# Command
 cp commands/dev.md ~/.claude/commands/
 
-# Optional: Enable Agent Teams
-# Add to ~/.claude/settings.json under "env":
-#   "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+# Register hooks in ~/.claude/settings.json (see hooks/ for JSON config)
 ```
 
-Restart Claude Code to load the new skill.
+### Requirements
 
-### Option C: Per-Project Install
-
-```bash
-cd your-project
-mkdir -p .claude/skills/dev-orchestrator .claude/scripts
-cp skills/dev-orchestrator/SKILL.md .claude/skills/dev-orchestrator/
-cp scripts/verify-dev.sh .claude/scripts/
-cp commands/dev.md .claude/commands/
-```
+- [Claude Code](https://claude.ai/claude-code) (Opus 4.6 or 4.7)
+- `ruff` installed on host (`pip install ruff`) — for quality-gate hook
+- [superpowers](https://github.com/obra/superpowers) plugin — TDD, debugging, planning skills
+- [claudemem](https://github.com/zelinewang/claudemem) — cross-session memory (recommended)
 
 ## Usage
 
-### Any Development Task
-
-```
-/dev "add dark mode with system preference detection"
-```
-
-### Research Tasks
-
-```
-/dev --research "investigate how our auth system handles token rotation"
-```
-
-### CICD Tasks
-
-```
-/dev --cicd "add staging environment to GitHub Actions pipeline"
-```
-
-### Override Tier
-
-```
-/dev --quick "fix typo in error message"
-/dev --deep "redesign payment processing pipeline"
-```
-
-### Skip Specs or PR
-
-```
-/dev --no-spec "refactor auth module to reduce duplication"
-/dev --no-pr "fix CSS alignment on login page"
-```
-
-## How It Works
-
-### Phase-by-Phase (all task types share the same structure)
-
-| Phase | DEVELOP | RESEARCH | CICD |
-|-------|---------|----------|------|
-| **P0 PRE-CHECK** | Git + OpenSpec + CLAUDE.md | Git warn only | Git + CI config |
-| **P1 INVESTIGATE** | Memory + code + docs | Memory + web + repo | Memory + pipeline |
-| **P2 CLASSIFY** | → DEVELOP | → RESEARCH | → CICD |
-| **P3 BRAINSTORM** | Intent + design trade-offs | Deliverable scope | Impact + rollback |
-| **P4 SPECIFY** | OpenSpec specs | Research proposal | Change spec |
-| **P5 PLAN** | TDD tasks (2-5 min each) | Questions + sources | Steps + dry-run |
-| **P6 SETUP** | Git worktree + baseline | Clone repo if needed | Backup config |
-| **P7 EXECUTE** | TDD per task + subagents | Investigate + notes | Implement + dry-run |
-| **P8 VERIFY** | Test suite + verify-dev.sh | Coverage check | Infra + rollback test |
-| **P9 SHIP** | Code review + PR | Deliver report + notes | Apply + monitor |
-| **P10 ARCHIVE** | OpenSpec archive + memory | claudemem + /wrapup | Notes + runbook |
-
-### Verification Script
-
-Automated gate that blocks bad deliveries:
-
 ```bash
-# For code tasks
-bash ~/.claude/scripts/verify-dev.sh
-
-# For research tasks
-bash ~/.claude/scripts/verify-dev.sh --research "search-term" /path/to/report.md
-
-# For CICD tasks (checks for leaked secrets)
-bash ~/.claude/scripts/verify-dev.sh --cicd
+/dev "add dark mode with system preference detection"
+/dev --deep "redesign payment processing pipeline"
+/dev "fix the 500 error in video upload endpoint"
+/dev "investigate how our auth system handles token rotation"
 ```
 
-## Customization
+The orchestrator auto-detects intent and depth. Use `--deep` to force agent teams and ScheduleWakeup loops.
 
-### Adapt to Your Stack
+## Design Principles
 
-The orchestrator reads your project's `openspec/config.yaml` for context:
+1. **Deterministic enforcement > prompt guidance** (Microsoft AGT: 0% violation vs 27%)
+2. **Progressive enforcement**: observe → measure → selectively enforce (ARMO)
+3. **Design for obsolescence**: every hook has an explicit "when to remove" condition
+4. **Feedforward + feedback**: rules guide behavior, hooks catch mistakes (Martin Fowler)
+5. **File-backed state > in-context state**: JSON progress files survive everything
 
-```yaml
-schema: spec-driven
-context: |
-  Tech stack: Python, FastAPI, PostgreSQL
-  Testing: pytest + httpx
-  Style: async by default
-rules:
-  specs:
-    - Use Given/When/Then format
-  tasks:
-    - Each task < 5 minutes
-```
+## Research Basis
 
-### Adapt to Your Workflow
-
-The skill works by invoking other skills by name. Edit the SKILL.md to reference your preferred tools.
+v4 was designed from 19 primary sources:
+- Anthropic: 4 engineering blogs (harnesses, managed agents, long-running apps, hook spec)
+- OpenAI: harness engineering blog
+- Academic: 5 arXiv papers (Dive into Claude Code, NLAH, Inside the Scaffold, VeRO, OpenDev)
+- Industry: Stripe Minions (1,000+ PRs/week), Herashchenko, Sourcegraph, Vercel
+- Experts: Hashimoto (coined "harness engineering"), Willison, Fowler
+- Governance: Microsoft AGT (0% violation), EU AI Act, NIST, Singapore IMDA
 
 ## Roadmap
 
-- [x] v0.1.0 — Core orchestrator with 3 tiers + 7 rules
-- [x] v2.0.0 — TDD Protocol + verify-dev.sh enforcement
-- [x] **v2.1.0 — Task routing (DEVELOP/RESEARCH/CICD) + phase status blocks + self-enforcement**
-- [ ] v2.2.0 — Compliance checklist (if status blocks prove insufficient)
-- [ ] v3.0.0 — Cursor/Windsurf cross-tool support
-- [ ] v4.0.0 — Stable API, submitted to Anthropic marketplace
+- [x] v1.0 — Core orchestrator, 3 tiers, 7 verification rules
+- [x] v2.0 — TDD Protocol + verify-dev.sh enforcement
+- [x] v2.1 — Task routing (DEVELOP/RESEARCH/CICD) + status blocks
+- [x] v3.0 — Zero-checkpoint continuity contract + ScheduleWakeup loops
+- [x] **v4.0 — 4-layer harness architecture (hooks + rules + state + skill)**
+- [ ] v4.1 — Compliance measurement baseline (skill-comply)
+- [ ] v4.2 — Instruction fade-out countermeasure (periodic additionalContext)
+- [ ] v4.3 — /dev skill ↔ dev-progress.json deep integration
+- [ ] v5.0 — Adaptive harness (progressive obsolescence as models improve)
 
 ## License
 
