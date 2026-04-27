@@ -90,13 +90,16 @@ PY
   fi
 fi
 
-# Output via JSON additionalContext
+# Output via JSON additionalContext (must include hookEventName per Claude Code schema)
 if [[ -n "$CONTEXT" ]]; then
   CONTEXT_BODY="$CONTEXT" python3 - <<'PY' 2>/dev/null || true
 import json, os
 ctx = os.environ.get('CONTEXT_BODY', '').replace('\\n', '\n').strip()
 if ctx:
-    print(json.dumps({'hookSpecificOutput': {'additionalContext': ctx}}))
+    print(json.dumps({'hookSpecificOutput': {
+        'hookEventName': 'SessionStart',
+        'additionalContext': ctx,
+    }}))
 PY
 fi
 exit 0

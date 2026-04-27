@@ -20,7 +20,7 @@ if git rev-parse --git-dir &>/dev/null; then
   COMMITS_RECENT=$(git log --since="8 hours ago" --oneline 2>/dev/null | wc -l | tr -d ' ' || echo 0)
 fi
 
-# Inject learning nudge if real work happened
+# Inject learning nudge if real work happened (must include hookEventName per Claude Code schema)
 if [[ "$COMMITS_RECENT" -gt 0 ]]; then
   COMMITS_N="$COMMITS_RECENT" python3 - <<'PY' 2>/dev/null || true
 import json, os
@@ -31,7 +31,10 @@ msg = (
     f"Focus on non-obvious findings: bug root causes, architecture decisions, API quirks, "
     f"config gotchas. Skip generic programming knowledge."
 )
-print(json.dumps({'hookSpecificOutput': {'additionalContext': msg}}))
+print(json.dumps({'hookSpecificOutput': {
+    'hookEventName': 'Stop',
+    'additionalContext': msg,
+}}))
 PY
 fi
 
