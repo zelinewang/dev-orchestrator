@@ -1,42 +1,25 @@
 #!/usr/bin/env bash
-# Stop hook (v5): close the feedback loop by nudging learning extraction.
+# Stop hook (v5.1 fix): silent timestamp update only.
 #
-# v4 version: only updated timestamp in dev-progress.json (which nothing reads)
-# v5 version: if the session did real work (commits made), inject a final
-# additionalContext nudge to save key learnings to claudemem with the
-# "workflow-retro" tag — which the next session's session-start hook reads.
+# Schema constraint: Stop event does NOT accept hookSpecificOutput
+# (only PreToolUse / UserPromptSubmit / PostToolUse / PostToolBatch do).
+# Stop accepts: continue / suppressOutput / stopReason / decision / reason /
+# systemMessage. None of these inject context into Claude.
 #
-# This is the missing feedback loop: session N's lessons reach session N+1
-# without requiring user intervention or /wrapup invocation.
+# Stop also fires on EVERY turn end (not just session close), so a per-Stop
+# nudge would be spam regardless of schema.
 #
-# Backward compat: still updates legacy dev-progress.json timestamp if present.
+# Right design: the feedback loop lives in session-start (which DOES accept
+# additionalContext via hookSpecificOutput). It surfaces last workflow-retro
+# claudemem note. Saving the note is /wrapup's job (or manual `claudemem
+# note add ... --tags workflow-retro`).
+#
+# Therefore this hook is now SILENT except for the legacy progress.json
+# timestamp bookkeeping — which had value (cross-session resume) and is the
+# only thing left to do.
 #
 # Security: env-var variable passing, no string interpolation.
 set -euo pipefail
-
-# Count commits made in this session window (8h proxy)
-COMMITS_RECENT=0
-if git rev-parse --git-dir &>/dev/null; then
-  COMMITS_RECENT=$(git log --since="8 hours ago" --oneline 2>/dev/null | wc -l | tr -d ' ' || echo 0)
-fi
-
-# Inject learning nudge if real work happened (must include hookEventName per Claude Code schema)
-if [[ "$COMMITS_RECENT" -gt 0 ]]; then
-  COMMITS_N="$COMMITS_RECENT" python3 - <<'PY' 2>/dev/null || true
-import json, os
-n = os.environ.get('COMMITS_N', '0')
-msg = (
-    f"Session ending with {n} commits. Before finishing: save key learnings to "
-    f"claudemem with tag 'workflow-retro' so next session's start hook can surface them. "
-    f"Focus on non-obvious findings: bug root causes, architecture decisions, API quirks, "
-    f"config gotchas. Skip generic programming knowledge."
-)
-print(json.dumps({'hookSpecificOutput': {
-    'hookEventName': 'Stop',
-    'additionalContext': msg,
-}}))
-PY
-fi
 
 # Backward compat: update timestamp on legacy progress file (if SKILL still uses it)
 BRANCH_SAFE=$(git branch --show-current 2>/dev/null | tr '/' '-' || echo "default")
