@@ -1,14 +1,20 @@
 #!/usr/bin/env bash
-# SessionStart hook (v5): inject ground-truth context for autonomous workflow.
+# SessionStart hook (v5.2.1 — codex-review fix #3, #6, #7).
 #
-# Compared to v4: instead of relying on self-reported dev-progress.json (which
-# is empty across all worktrees because the SKILL never wired up the writer),
-# this version reads git/claudemem ground truth — strictly more reliable.
+# v5.2.1 changes vs v5.2.0:
+#   #3 Read latest workflow-retro note via stored note ID
+#      (`.last-retro-id-<branch>`) instead of `claudemem search` which is
+#      relevance-ranked, not recency-ranked. Fallback to search if no ID file.
+#   #6 Build CONTEXT entirely in Python from per-field env vars; eliminate
+#      bash `\n` literal interpolation that mangled real newlines from
+#      command substitution.
+#   #7 Strict branch-name sanitization (alnum + dash only).
 #
 # What it injects:
 #   1. Branch + last 5 commits + uncommitted status (real progress signal)
 #   2. Open PRs touching this branch (parallel-work detection)
-#   3. Last claudemem note tagged "workflow-retro" (closes feedback loop)
+#   3. Last claudemem note tagged "workflow-retro" by direct ID read (recency
+#      guaranteed) with relevance-search fallback
 #   4. Backward compat: legacy dev-progress.json if present
 #
 # Compatible with Opus 4.6/4.7. Obsolescence condition: when Claude Code's
@@ -17,35 +23,49 @@
 # Security: variables passed via environment, never interpolated into code.
 set -euo pipefail
 
-CONTEXT=""
+# ----------------------------------------------------------------------------
+# Gather raw fields (each as separate env var to avoid \n interpolation pitfalls)
+# ----------------------------------------------------------------------------
+F_BRANCH=$(git branch --show-current 2>/dev/null || echo "")
+F_RECENT=$(git log --oneline -5 2>/dev/null || echo "")
+F_STATUS=$(git status --short 2>/dev/null | head -10 || echo "")
 
-# 1. Git ground truth
-if BRANCH=$(git branch --show-current 2>/dev/null) && [[ -n "$BRANCH" ]]; then
-  RECENT=$(git log --oneline -5 2>/dev/null || echo "")
-  STATUS=$(git status --short 2>/dev/null | head -10 || echo "")
-  CONTEXT="Branch: ${BRANCH}"
-  [[ -n "$RECENT" ]] && CONTEXT="${CONTEXT}\nRecent commits:\n${RECENT}"
-  if [[ -n "$STATUS" ]]; then
-    CONTEXT="${CONTEXT}\nUncommitted:\n${STATUS}"
-  else
-    CONTEXT="${CONTEXT}\nWorking tree: clean"
-  fi
-fi
-
-# 2. Open PRs (gh CLI optional)
+F_PRS=""
 if command -v gh &>/dev/null && gh auth status &>/dev/null 2>&1; then
-  PRS=$(gh pr list --state open --limit 3 --json number,title,headRefName \
+  F_PRS=$(gh pr list --state open --limit 3 --json number,title,headRefName \
         --template '{{range .}}#{{.number}} [{{.headRefName}}] {{.title}}{{"\n"}}{{end}}' \
         2>/dev/null || echo "")
-  if [[ -n "$PRS" ]]; then
-    CONTEXT="${CONTEXT}\nOpen PRs:\n${PRS}"
-  fi
 fi
 
-# 3. Last workflow-retro note from claudemem (feedback loop)
-if command -v claudemem &>/dev/null; then
-  RETRO=$(claudemem search "workflow-retro" --compact --format json --limit 1 2>/dev/null \
-          | python3 -c "
+# Fix #7: strict branch sanitization
+BRANCH_SAFE=$(printf '%s' "$F_BRANCH" | tr -c 'a-zA-Z0-9-' '-' | tr -s '-' | sed 's/^-//;s/-$//')
+[[ -z "$BRANCH_SAFE" ]] && BRANCH_SAFE="default"
+
+# ----------------------------------------------------------------------------
+# Fix #3: prefer reading latest retro by stored note ID (recency guaranteed)
+# rather than relevance-ranked claudemem search.
+# Fallback chain:
+#   1. .claude/dev-progress/.last-retro-id-<branch> → claudemem note get <id>
+#   2. claudemem search "workflow-retro" --limit 1 (legacy, relevance-ranked)
+#   3. empty
+# ----------------------------------------------------------------------------
+F_RETRO=""
+ID_FILE=".claude/dev-progress/.last-retro-id-${BRANCH_SAFE}"
+if [[ -f "$ID_FILE" ]] && command -v claudemem &>/dev/null; then
+  STORED_ID=$(head -1 "$ID_FILE" 2>/dev/null | tr -dc 'a-zA-Z0-9_-')
+  if [[ -n "$STORED_ID" && ${#STORED_ID} -ge 6 ]]; then
+    # Try to fetch by exact ID — recency guaranteed
+    F_RETRO_BODY=$(claudemem note get "$STORED_ID" 2>/dev/null | head -3 || echo "")
+    if [[ -n "$F_RETRO_BODY" ]]; then
+      # Extract title line (claudemem note get prints "Title: <title>")
+      F_RETRO=$(printf '%s' "$F_RETRO_BODY" | grep -i '^Title:' | head -1 | sed 's/^Title:[[:space:]]*//' || echo "")
+    fi
+  fi
+fi
+# Fallback: legacy search if no stored ID or fetch failed
+if [[ -z "$F_RETRO" ]] && command -v claudemem &>/dev/null; then
+  F_RETRO=$(claudemem search "workflow-retro" --compact --format json --limit 1 2>/dev/null \
+    | python3 -c "
 import json, sys
 try:
     data = json.load(sys.stdin)
@@ -54,18 +74,14 @@ try:
 except Exception:
     pass
 " 2>/dev/null || echo "")
-  if [[ -n "$RETRO" ]]; then
-    CONTEXT="${CONTEXT}\nLast workflow lesson: ${RETRO} (search claudemem for full content)"
-  fi
 fi
 
-# 4. Backward compat: legacy dev-progress.json (if SKILL ever wires it up)
-BRANCH_SAFE=$(git branch --show-current 2>/dev/null | tr '/' '-' || echo "default")
+# Backward compat: legacy dev-progress.json
 PROGRESS_FILE=".claude/dev-progress/${BRANCH_SAFE}.json"
 [[ ! -f "$PROGRESS_FILE" ]] && PROGRESS_FILE=".claude/dev-progress.json"
+F_LEGACY=""
 if [[ -f "$PROGRESS_FILE" ]]; then
-  # SECURITY: pass file path via env, NOT string interpolation
-  LEGACY=$(PROGRESS_FILE_PATH="$PROGRESS_FILE" python3 - <<'PY' 2>/dev/null || true
+  F_LEGACY=$(PROGRESS_FILE_PATH="$PROGRESS_FILE" python3 - <<'PY' 2>/dev/null || true
 import json, datetime, os, sys
 try:
     path = os.environ.get('PROGRESS_FILE_PATH', '')
@@ -85,21 +101,56 @@ except Exception:
     sys.exit(0)
 PY
   )
-  if [[ -n "$LEGACY" ]]; then
-    CONTEXT="${CONTEXT}\n${LEGACY}"
-  fi
 fi
 
-# Output via JSON additionalContext (must include hookEventName per Claude Code schema)
-if [[ -n "$CONTEXT" ]]; then
-  CONTEXT_BODY="$CONTEXT" python3 - <<'PY' 2>/dev/null || true
-import json, os
-ctx = os.environ.get('CONTEXT_BODY', '').replace('\\n', '\n').strip()
+# ----------------------------------------------------------------------------
+# Fix #6: build the entire CONTEXT in Python from typed env vars.
+# No bash \n interpolation; real newlines stay as real newlines.
+# ----------------------------------------------------------------------------
+F_BRANCH="$F_BRANCH" \
+F_RECENT="$F_RECENT" \
+F_STATUS="$F_STATUS" \
+F_PRS="$F_PRS" \
+F_RETRO="$F_RETRO" \
+F_LEGACY="$F_LEGACY" \
+python3 - <<'PY' 2>/dev/null || true
+import json
+import os
+
+def get(k):
+    return os.environ.get(k, '').strip()
+
+parts = []
+branch = get('F_BRANCH')
+if branch:
+    parts.append(f"Branch: {branch}")
+
+recent = get('F_RECENT')
+if recent:
+    parts.append("Recent commits:\n" + recent)
+
+status = get('F_STATUS')
+parts.append("Uncommitted:\n" + status if status else "Working tree: clean")
+
+prs = get('F_PRS')
+if prs:
+    parts.append("Open PRs:\n" + prs)
+
+retro = get('F_RETRO')
+if retro:
+    parts.append(f"Last workflow lesson: {retro} (search claudemem for full content)")
+
+legacy = get('F_LEGACY')
+if legacy:
+    parts.append(legacy)
+
+ctx = '\n'.join(parts).strip()
 if ctx:
+    # Schema: SessionStart hook accepts hookSpecificOutput.additionalContext
     print(json.dumps({'hookSpecificOutput': {
         'hookEventName': 'SessionStart',
         'additionalContext': ctx,
     }}))
 PY
-fi
+
 exit 0

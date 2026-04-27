@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
-# Stop hook (v5.2 root fix): silent stdout + async retro extraction.
+# Stop hook (v5.2.1 — codex-review fix #2): cooldown reads success file.
+#
+# v5.2.1 changes vs v5.2.0:
+#   #2 Cooldown gate now reads `.last-retro-success-<branch>` (written ONLY
+#      after extractor's successful claudemem save), not pre-emptive timestamp.
+#      Failed extractions no longer consume the 30min slot.
+#   #7 BRANCH_SAFE uses strict alnum+dash sanitize (caller-side defense).
 #
 # Schema reality (verified from Claude Code coreSchemas.ts:916-932):
 #   Stop hook does NOT accept hookSpecificOutput. Only base fields:
@@ -14,24 +20,16 @@
 #   - We read transcript_path + check signals (commits, cooldown).
 #   - If signals met, spawn DETACHED async retro extractor (nohup + &).
 #   - Extractor uses Bedrock Haiku to write workflow-retro note to claudemem.
-#   - session-start hook surfaces the latest retro on next session start.
+#   - Extractor writes success-timestamp ONLY on save success.
+#   - session-start hook reads `.last-retro-id-<branch>` for direct recency.
 #   - This hook itself outputs NOTHING (schema-compliant Stop).
-#
-# Why this design:
-#   - No schema risk: silent stdout = always valid for Stop event.
-#   - Goal achieved: feedback loop closes via shell-side LLM, not Claude turn.
-#   - Non-blocking: async detached, Stop turn flow preserved.
-#   - Cost-controlled: 30-min cooldown + commits>0 gate; ~$0.05 per actual fire.
-#   - Opt-out: CLAUDE_DEV_AUTO_RETRO=0 in env disables.
-#
-# Backward compat: still updates legacy dev-progress.json timestamp if present.
 set -euo pipefail
 
 INPUT=$(cat)
 
-# Sync, lightweight: extract transcript_path, check cooldown, decide if spawn worthwhile
+# Sync, lightweight: extract transcript_path
 TRANSCRIPT_PATH=$(INPUT_BODY="$INPUT" python3 - <<'PY' 2>/dev/null || true
-import json, os, sys
+import json, os
 try:
     d = json.loads(os.environ.get('INPUT_BODY', ''))
     print(d.get('transcript_path', ''))
@@ -40,17 +38,24 @@ except Exception:
 PY
 )
 
-# Exit silently if no transcript path (older Claude Code versions, or other hook event reused this hook)
+# Exit silently if no transcript path
 [[ -z "$TRANSCRIPT_PATH" ]] && exit 0
 [[ ! -f "$TRANSCRIPT_PATH" ]] && exit 0
 
-# Branch-scoped cooldown to prevent retro spam (Stop fires per-turn end)
-BRANCH_SAFE=$(git branch --show-current 2>/dev/null | tr '/' '-' || echo "default")
+# Fix #7: strict branch-name sanitization (alnum + dash only)
+BRANCH_RAW=$(git branch --show-current 2>/dev/null || echo "")
+BRANCH_SAFE=$(printf '%s' "$BRANCH_RAW" | tr -c 'a-zA-Z0-9-' '-' | tr -s '-' | sed 's/^-//;s/-$//')
+[[ -z "$BRANCH_SAFE" ]] && BRANCH_SAFE="default"
+
 PROGRESS_DIR=".claude/dev-progress"
-LAST_RETRO_FILE="${PROGRESS_DIR}/.last-retro-${BRANCH_SAFE}"
+
+# Fix #2: cooldown gate reads `.last-retro-success-<branch>` (written by
+# extractor on save success), not pre-emptive timestamp. A failed extraction
+# leaves this file unchanged → next Stop tries again.
+LAST_SUCCESS_FILE="${PROGRESS_DIR}/.last-retro-success-${BRANCH_SAFE}"
 COOLDOWN_SECONDS="${CLAUDE_DEV_AUTO_RETRO_COOLDOWN:-1800}"  # 30 min default
 NOW=$(date +%s)
-LAST_RETRO_AT=$(cat "$LAST_RETRO_FILE" 2>/dev/null || echo 0)
+LAST_SUCCESS_AT=$(cat "$LAST_SUCCESS_FILE" 2>/dev/null || echo 0)
 
 # Real-work signal: at least 1 commit in cooldown window
 COMMITS_RECENT=0
@@ -59,14 +64,12 @@ if git rev-parse --git-dir &>/dev/null; then
 fi
 
 # Spawn async extractor if: cooldown elapsed AND commits exist
-if [[ $((NOW - LAST_RETRO_AT)) -ge "$COOLDOWN_SECONDS" ]] && [[ "$COMMITS_RECENT" -ge 1 ]]; then
-  mkdir -p "$PROGRESS_DIR"
-  echo "$NOW" > "$LAST_RETRO_FILE"
-
-  # Detached async via setsid + nohup (survives Claude Code shutdown)
+if [[ $((NOW - LAST_SUCCESS_AT)) -ge "$COOLDOWN_SECONDS" ]] && [[ "$COMMITS_RECENT" -ge 1 ]]; then
+  # Detached async via nohup + & + disown (survives Claude Code shutdown)
   TRANSCRIPT_PATH="$TRANSCRIPT_PATH" \
   BRANCH_SAFE="$BRANCH_SAFE" \
   COMMITS_RECENT="$COMMITS_RECENT" \
+  CLAUDE_DEV_AUTO_RETRO_PROGRESS_DIR="$PROGRESS_DIR" \
   nohup bash "$HOME/.claude/scripts/dev-retro-extract.sh" </dev/null >/dev/null 2>&1 &
   disown
 fi
