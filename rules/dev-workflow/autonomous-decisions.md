@@ -77,6 +77,22 @@ coding — investigate more.
 | "Phase 2 done, proceed to phase 3?" | Just proceed. No interphase checkpoint. |
 | "Tests pass — ready to commit?" | Commit. The hook will block if anything's wrong. |
 
+## Status block format (visibility, not approval)
+
+When emitting phase progress, use this concise block. It is for the user to
+SEE state at a glance — not a checkpoint waiting on approval.
+
+```
+┌─ PHASE: <name> ─────────────────────────
+│ Status: DONE | SKIP <reason> | ADAPT <reason>
+│ Key: <one-line summary of what was done>
+│ Next: <next phase or "complete">
+└──────────────────────────────────────────
+```
+
+After emitting the block, immediately continue to the next phase. Do not
+ask "should I proceed?" — proceed.
+
 ## What this rule replaces
 
 This file is the missing **autonomy layer** — the previous v4 system had
