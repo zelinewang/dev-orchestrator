@@ -199,9 +199,41 @@ Show one-line status per check. Do NOT ask permission — just do it.
 
 "Project ready. Starting investigation..."
 
+### Cross-Session State (write progress so resumption works after compact/crash)
+
+After P0 finishes, **create the progress file**. This is the durable handoff
+between sessions and the recovery anchor when auto-compaction happens
+mid-workflow:
+
+```bash
+bash ~/.claude/scripts/dev-progress-update.sh create "<task description>" "<intent: build|fix|research|deploy>" "<depth: quick|standard|deep>"
+```
+
+At each phase boundary below, run the corresponding `phase` update. At the end
+of the workflow, run `done`. This file is read by `~/.claude/hooks/dev-session-start.sh`
+on the next session to restore context — and by THIS skill if a compact
+happened (see "Post-Compact Recovery" below).
+
+### Post-Compact Recovery (read this FIRST if you've been compacted)
+
+If your conversation summary indicates auto-compaction just happened OR the
+session-start context shows a "Resuming /dev" line, your first action is:
+
+```bash
+cat .claude/dev-progress/$(git branch --show-current | tr '/' '-').json 2>/dev/null \
+  || cat .claude/dev-progress.json 2>/dev/null
+```
+
+Read the `phase`, `subtasks`, and `current_subtask` fields to know where to
+resume. THEN continue from that phase below — do NOT restart from P0.
+
 ---
 
 ## P1: INVESTIGATE (Mandatory, ~5 min)
+
+```bash
+bash ~/.claude/scripts/dev-progress-update.sh phase investigate
+```
 
 **Do NOT skip. Do NOT decide tier or type from keywords. Research BEFORE classifying.**
 
@@ -330,6 +362,10 @@ QUICK tier outputs status blocks for P1, P2, and a combined P7-P9 block.
 
 # STAGE 1: UNDERSTAND (P3-P5)
 
+```bash
+bash ~/.claude/scripts/dev-progress-update.sh phase plan
+```
+
 ## P3: BRAINSTORM (STANDARD/DEEP — MANDATORY, NOT OPTIONAL)
 
 **This is the FIRST skill invoked after classification. It determines everything downstream.**
@@ -366,6 +402,10 @@ happened at P3 prefix (Requirement Clarification Gate). No pause here. -->
 ---
 
 # STAGE 2: BUILD (P6-P7)
+
+```bash
+bash ~/.claude/scripts/dev-progress-update.sh phase execute
+```
 
 ## P6: SETUP (STANDARD/DEEP)
 
@@ -438,6 +478,10 @@ After all tasks: `bash ~/.claude/scripts/verify-dev.sh [--research|--cicd]`
 
 # STAGE 3: DELIVER (P8-P10)
 
+```bash
+bash ~/.claude/scripts/dev-progress-update.sh phase verify
+```
+
 ## P8: VERIFY
 
 Invoke `/verify` command (9-phase unified verification with Iron Law — supersedes
@@ -465,6 +509,10 @@ that runs >2 min:
 
 ## P9: SHIP
 
+```bash
+bash ~/.claude/scripts/dev-progress-update.sh phase ship
+```
+
 | Task Type | Steps |
 |-----------|-------|
 | **DEVELOP** | 1. `/codex-review` (Codex + 5 Claude agents + Haiku cross-scorer — supersedes `requesting-code-review`) → fix Critical/Important. 2. STANDARD+: `security-reviewer` agent for auth/crypto/input code. 3. `verify-dev.sh` final gate. 4. `finishing-a-development-branch` → PR. 5. **Push automatically** (no confirmation — user reviews via git log / GitHub PR). Safety exception: if branch is `master` / `main` / `production`, anomaly-escalate to user. 6. DEEP: enter LOOP Pattern 1 (CI wait) via ScheduleWakeup — NOT blocking `gh run watch`. On CI green → proceed directly to P10. |
@@ -483,6 +531,10 @@ the only reason to pause after P9. -->
 - CICD: "Change applied, pipeline healthy, rollback documented."
 
 ## P10: ARCHIVE
+
+```bash
+bash ~/.claude/scripts/dev-progress-update.sh done
+```
 
 | Action | DEVELOP | RESEARCH | CICD |
 |--------|---------|----------|------|
