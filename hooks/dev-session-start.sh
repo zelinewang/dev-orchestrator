@@ -1,9 +1,22 @@
 #!/usr/bin/env bash
-# SessionStart hook (v5.3.3 — codex-review hardening: 1 HIGH + 4 MEDIUM fixes).
+# SessionStart hook (v5.3.4 — codex-review iteration 2: backslash + WINDOW_DAYS guard + comment cleanup).
+#
+# v5.3.4 changes vs v5.3.3 (from 2026-04-28 codex-review iteration 2):
+#   HIGH: Strip `\\` from MY_FILTER. v5.3.3's `tr -d '|\n\t\r\0'` missed
+#         backslash. awk -v processes backslash escape sequences in -v
+#         assignment: `\b`→backspace etc. "Domain\\Username" (Windows
+#         AD/LDAP configs) would corrupt the field comparison → all commits
+#         leak as OTHERS. Verified empirically.
+#   LOW1: WINDOW_DAYS integer validation. 9999d → 27 years history scan,
+#         multi-second startup latency. Cap to 30 days; non-integer falls
+#         back to 5.
+#   LOW2: Comment cleanup. Remove stale `\\x00` references in v5.3.3 comments
+#         (line ~131, ~144) — implementation now uses `\\x1f` exclusively;
+#         only the inline rationale at the awk site should mention NUL.
 #
 # v5.3.3 changes vs v5.3.2 (from codex-review 2026-04-28):
 #   HIGH: Strip `|` from MY_FILTER (git config user.name) — pipe in name
-#         corrupted awk -F'|' parsing → all commits leaked as OTHERS.
+#         corrupted awk parsing → all commits leaked as OTHERS.
 #         Also limit to 200 chars and strip control chars for awk -v safety.
 #   MED1: Show "+N more" overflow indicator when concurrent commits per file
 #         exceed display cap of 2 (was silent truncation, misleading).
@@ -12,10 +25,12 @@
 #         Was 5d/3d asymmetric → false negatives on 3-5d old work.
 #   MED3: Sanitize DEFAULT_BRANCH against git-flag injection. Reject leading
 #         dash to block `--exec=evil` style attacks via crafted symbolic-ref.
+#         Note: `..` in ref name is rejected by git fetch itself with "fatal:
+#         invalid refspec", so path-traversal-in-ref is a non-threat.
 #   MED4: Field separator `\x1f` (ASCII Unit Separator, designed exactly for
 #         this) instead of `|`. Pipe could appear in commit subjects causing
 #         field misalignment. NUL was tried first but bash strips NUL bytes
-#         in command substitution.
+#         in command substitution (see inline comment at the awk site).
 #
 # v5.3.2 changes vs v5.3.1:
 #   Move CONCURRENT WARNING to top of context (was buried after PRs).
@@ -140,14 +155,19 @@ F_CONCURRENT=""
 # show as "Zane Wang" but only one matches `--author=email`. Name-based
 # filter catches both. Falls back to email if name not configured.
 #
-# v5.3.3 HIGH fix: strip `|` from name. Names like "Wang | Zane" would otherwise
-# corrupt the awk -F'\x00' parsing if any consumer reverted to pipe-delimited.
-# We also strip newlines/tabs/control chars that could break awk -v assignment.
+# v5.3.3+v5.3.4 HIGH fix: strip awk-poisoning chars from name.
+# - `|` would corrupt awk -F'\x1f' if any field contained pipe (legacy paranoia)
+# - `\n` `\t` `\r` `\0` corrupt awk -v assignment AND command substitution
+# - `\\` (BACKSLASH) is processed as escape sequence by awk -v: `\b`→backspace,
+#   `\t`→tab, `\n`→newline. Names like "Domain\Username" (Windows AD/LDAP)
+#   would have backslash-letter pairs interpreted by awk → field mismatch →
+#   own commits leak as OTHERS. v5.3.4 codex-review finding (HIGH 95/100).
+# So strip backslash too.
 MY_NAME_RAW=$(git config user.name 2>/dev/null || echo "")
-MY_FILTER=$(printf '%s' "$MY_NAME_RAW" | tr -d '|\n\t\r\0')
+MY_FILTER=$(printf '%s' "$MY_NAME_RAW" | tr -d '|\n\t\r\0\\')
 if [[ -z "$MY_FILTER" ]]; then
   MY_EMAIL_RAW=$(git config user.email 2>/dev/null || echo "")
-  MY_FILTER=$(printf '%s' "$MY_EMAIL_RAW" | tr -d '|\n\t\r\0')
+  MY_FILTER=$(printf '%s' "$MY_EMAIL_RAW" | tr -d '|\n\t\r\0\\')
 fi
 # Cap to 200 chars (defense vs absurd configs from untrusted .git/config)
 MY_FILTER="${MY_FILTER:0:200}"
@@ -156,7 +176,15 @@ MY_FILTER="${MY_FILTER:0:200}"
 # Previous v5.3.2: my-files=5d but others=3d → "I authored 4d ago + teammate
 # deleted 3.5d ago" was missed. Aligning both to 5d removes the false-negative.
 # Override via env: CLAUDE_DEV_CONCURRENT_WINDOW_DAYS=N
+#
+# v5.3.4 LOW fix: validate WINDOW_DAYS as integer. Without guard, value of
+# 9999 would make git log scan ~27 years of history per file × 20 files →
+# multi-second startup latency. Also guards against bad env settings.
+# (Not a security fix — git args don't go through shell eval — just defense.)
 WINDOW_DAYS="${CLAUDE_DEV_CONCURRENT_WINDOW_DAYS:-5}"
+if [[ ! "$WINDOW_DAYS" =~ ^[0-9]+$ ]] || [[ "$WINDOW_DAYS" -gt 30 ]]; then
+  WINDOW_DAYS=5
+fi
 
 if [[ -n "$MY_FILTER" ]]; then
   # Best-effort: refresh origin's default branch so concurrent activity is current.
