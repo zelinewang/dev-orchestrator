@@ -1,5 +1,21 @@
 #!/usr/bin/env bash
-# SessionStart hook (v5.3.2 — concurrent detector visibility + hardening).
+# SessionStart hook (v5.3.3 — codex-review hardening: 1 HIGH + 4 MEDIUM fixes).
+#
+# v5.3.3 changes vs v5.3.2 (from codex-review 2026-04-28):
+#   HIGH: Strip `|` from MY_FILTER (git config user.name) — pipe in name
+#         corrupted awk -F'|' parsing → all commits leaked as OTHERS.
+#         Also limit to 200 chars and strip control chars for awk -v safety.
+#   MED1: Show "+N more" overflow indicator when concurrent commits per file
+#         exceed display cap of 2 (was silent truncation, misleading).
+#   MED2: Align my-files window with others-commits window via single
+#         CLAUDE_DEV_CONCURRENT_WINDOW_DAYS env var (default 5d for both).
+#         Was 5d/3d asymmetric → false negatives on 3-5d old work.
+#   MED3: Sanitize DEFAULT_BRANCH against git-flag injection. Reject leading
+#         dash to block `--exec=evil` style attacks via crafted symbolic-ref.
+#   MED4: Field separator `\x1f` (ASCII Unit Separator, designed exactly for
+#         this) instead of `|`. Pipe could appear in commit subjects causing
+#         field misalignment. NUL was tried first but bash strips NUL bytes
+#         in command substitution.
 #
 # v5.3.2 changes vs v5.3.1:
 #   Move CONCURRENT WARNING to top of context (was buried after PRs).
@@ -99,11 +115,21 @@ except Exception:
 fi
 
 # ----------------------------------------------------------------------------
-# v5.3.0: Concurrent PR activity detector
+# v5.3.3: Concurrent PR activity detector (codex-review hardening)
 # Surfaces files I recently touched that OTHERS have committed to since.
 # Prevents "Ashley PR #2544 deleted my MAX_ANALYZE_ATTEMPTS without saying so
 # in PR description" surprise (real 2026-04-27 incident — see claudemem note
 # feedback_concurrent_pr_feature_deletion).
+#
+# v5.3.3 fixes vs v5.3.2 (5 findings from codex-review 2026-04-28):
+#   HIGH: pipe-char in MY_FILTER → strip `|` to prevent awk -F'|' field
+#         misalignment that would cause every commit to leak as OTHERS
+#   MED1: head -2 silent truncation → show "+N more" overflow indicator
+#   MED2: 5d/3d window asymmetry → align both windows via single var
+#   MED3: git fetch flag injection via DEFAULT_BRANCH → strict sanitize +
+#         reject leading dash to block `--exec=evil` style attacks
+#   MED4: commit-subject pipe corruption → use \x00 (NUL) field separator
+#         which can never appear in git output
 #
 # All steps are best-effort with || true fallback; never aborts session start.
 # Hard timeout on git fetch prevents network-stalls from blocking startup.
@@ -113,27 +139,48 @@ F_CONCURRENT=""
 # Real failure mode: zelinwang10@gmail.com vs zelinwang@andrew.cmu.edu both
 # show as "Zane Wang" but only one matches `--author=email`. Name-based
 # filter catches both. Falls back to email if name not configured.
-MY_NAME=$(git config user.name 2>/dev/null || echo "")
-MY_FILTER="$MY_NAME"
-[[ -z "$MY_FILTER" ]] && MY_FILTER=$(git config user.email 2>/dev/null || echo "")
+#
+# v5.3.3 HIGH fix: strip `|` from name. Names like "Wang | Zane" would otherwise
+# corrupt the awk -F'\x00' parsing if any consumer reverted to pipe-delimited.
+# We also strip newlines/tabs/control chars that could break awk -v assignment.
+MY_NAME_RAW=$(git config user.name 2>/dev/null || echo "")
+MY_FILTER=$(printf '%s' "$MY_NAME_RAW" | tr -d '|\n\t\r\0')
+if [[ -z "$MY_FILTER" ]]; then
+  MY_EMAIL_RAW=$(git config user.email 2>/dev/null || echo "")
+  MY_FILTER=$(printf '%s' "$MY_EMAIL_RAW" | tr -d '|\n\t\r\0')
+fi
+# Cap to 200 chars (defense vs absurd configs from untrusted .git/config)
+MY_FILTER="${MY_FILTER:0:200}"
+
+# v5.3.3 MED2 fix: single window for both my-files AND others-commits queries.
+# Previous v5.3.2: my-files=5d but others=3d → "I authored 4d ago + teammate
+# deleted 3.5d ago" was missed. Aligning both to 5d removes the false-negative.
+# Override via env: CLAUDE_DEV_CONCURRENT_WINDOW_DAYS=N
+WINDOW_DAYS="${CLAUDE_DEV_CONCURRENT_WINDOW_DAYS:-5}"
 
 if [[ -n "$MY_FILTER" ]]; then
-  # Best-effort: refresh origin's default branch so "since 3 days ago by others"
-  # is current. v5.3.1 fix: detect default branch dynamically (master vs main).
-  # Hardcoded "origin master" silently fails on `main`-default repos (fetch
-  # returns nonzero, || true swallows it, local ref stays stale → false negatives).
+  # Best-effort: refresh origin's default branch so concurrent activity is current.
+  # v5.3.3 MED3 fix: sanitize DEFAULT_BRANCH against flag-injection. A malicious
+  # symbolic-ref planted by a hostile remote could be `--exec=evil` and pass
+  # through `git fetch origin "$DEFAULT_BRANCH"` as a flag (git interprets
+  # leading `-` as flag even when quoted). tr keeps only safe chars, then
+  # explicitly reject leading dash.
   # 3-second hard cap; if network is slow/down, just skip refresh (we still
   # check local refs, which is better than nothing).
   DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null \
                    | sed 's|^refs/remotes/origin/||' || echo "master")
-  [[ -z "$DEFAULT_BRANCH" ]] && DEFAULT_BRANCH="master"
+  # Sanitize: alnum + ./_/- only (matches git ref naming rules); reject leading dash
+  DEFAULT_BRANCH=$(printf '%s' "$DEFAULT_BRANCH" | tr -c 'a-zA-Z0-9._/-' '-')
+  if [[ -z "$DEFAULT_BRANCH" || "${DEFAULT_BRANCH:0:1}" == "-" ]]; then
+    DEFAULT_BRANCH="master"
+  fi
   timeout 3 git fetch --quiet origin "$DEFAULT_BRANCH" 2>/dev/null || true
 
-  # Files I committed to in last 5 days (cap 20 for performance bound).
+  # Files I committed to in last $WINDOW_DAYS days (cap 20 for performance bound).
   # awk 'NF' filters empty lines from --pretty=format: between commits.
   # --author=PATTERN matches against author name AND email; name catches
   # commits made under ALL my email aliases.
-  MY_RECENT_FILES=$(git log --since='5 days ago' --author="$MY_FILTER" \
+  MY_RECENT_FILES=$(git log --since="${WINDOW_DAYS} days ago" --author="$MY_FILTER" \
     --name-only --pretty=format: 2>/dev/null \
     | awk 'NF' | sort -u | head -20 || echo "")
 
@@ -148,19 +195,31 @@ if [[ -n "$MY_FILTER" ]]; then
       # WARNING: `git log --not --author=PATTERN` does NOT invert the author
       # filter — `--not` only affects revision selection (^commit semantics).
       # Confirmed empirically 2026-04-28: --not --author="Zane Wang" still
-      # returned Zane Wang commits. The reliable way is field-compare on output:
-      #   1. Format each commit as `hash|author_name|subject` (pipe-delimited)
-      #   2. awk -F'|' '$2 != me' to drop my own commits (literal compare,
-      #      v5.3.1 fix: was grep regex which would mis-match names with
-      #      regex meta chars like `.` `*` `[`)
-      #   3. Reformat with awk for display
-      # This is robust to git internals + handles all email aliases under one name.
-      OTHERS=$(git log --since='3 days ago' \
-        --pretty=format:'%h|%an|%s' -- "$f" 2>/dev/null \
-        | awk -F'|' -v me="$MY_FILTER" '$2 != me' \
-        | head -2 \
-        | awk -F'|' '{printf "    %s %s (%s)\n", $1, $3, $2}' \
+      # returned Zane Wang commits. The reliable way is field-compare on output.
+      #
+      # v5.3.3 MED4 fix: use \x1f (ASCII Unit Separator, designed for this!)
+      # as field separator. Pipe `|` would appear in commit subjects
+      # ("feat: A|B parser") corrupting `-F'|'` parsing → wrong author check.
+      # \x00 (NUL) was tried first but bash command substitution strips NUL
+      # bytes ("warning: command substitution: ignored null byte"). \x1f survives
+      # bash variables AND won't appear in normal git commit data.
+      #
+      # Two-pass to support v5.3.3 MED1 fix (overflow indicator):
+      # 1. Compute total OTHERS count (not capped)
+      # 2. Display first 2, append "+N more" if more exist
+      ALL_OTHERS=$(git log --since="${WINDOW_DAYS} days ago" \
+        --pretty=$'format:%h\x1f%an\x1f%s' -- "$f" 2>/dev/null \
+        | awk -F$'\x1f' -v me="$MY_FILTER" '$2 != me' \
         || echo "")
+      # awk count: NF→non-empty lines; c+0→guarantees integer output (default 0)
+      OTHER_COUNT=$(printf '%s' "$ALL_OTHERS" | awk 'NF{c++} END{print c+0}')
+      OTHERS=$(printf '%s' "$ALL_OTHERS" | head -2 \
+        | awk -F$'\x1f' '{printf "    %s %s (%s)\n", $1, $3, $2}' \
+        || echo "")
+      if [[ -n "$OTHERS" && "$OTHER_COUNT" -gt 2 ]]; then
+        EXTRA=$((OTHER_COUNT - 2))
+        OTHERS+="    ... (+${EXTRA} more concurrent commit(s) on this file)"$'\n'
+      fi
       if [[ -n "$OTHERS" ]]; then
         CONCURRENT_LINES+="  ${f}:"$'\n'"${OTHERS}"$'\n'
         COUNT=$((COUNT + 1))
