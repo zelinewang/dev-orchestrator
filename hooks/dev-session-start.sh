@@ -1,5 +1,17 @@
 #!/usr/bin/env bash
-# SessionStart hook (v5.3.0 — adds concurrent-PR feature deletion detector).
+# SessionStart hook (v5.3.2 — concurrent detector visibility + hardening).
+#
+# v5.3.2 changes vs v5.3.1:
+#   Move CONCURRENT WARNING to top of context (was buried after PRs).
+#   Action-required signals belong first — agent processes context top-down
+#   and a buried WARNING risks being skimmed past, defeating the detector.
+#   Wrapped in `=== ⚠ ===` separator for visual distinction.
+#
+# v5.3.1 changes vs v5.3.0:
+#   #1 Default branch detected dynamically (master vs main) — was hardcoded
+#      `origin master`, silently failed on main-default repos.
+#   #2 OTHERS filter via awk field-compare — was grep regex, broke on names
+#      with regex meta chars (. * [).
 #
 # v5.3.0 changes vs v5.2.1:
 #   Add F_CONCURRENT — surfaces files I recently touched that OTHERS have
@@ -206,6 +218,24 @@ def get(k):
     return os.environ.get(k, '').strip()
 
 parts = []
+
+# v5.3.2: surface concurrent PR activity FIRST for maximum visibility.
+# Action-required signals belong at the top — agent processes context
+# top-down and a buried WARNING risks being skimmed past, defeating the
+# whole point of the detector. Wrapped in `===` separators to make the
+# block visually distinct from the grounding info that follows.
+# Note: `get()` strips trailing whitespace so we explicitly add `\n` before
+# the closing separator (otherwise it glues onto the last warning line).
+concurrent = get('F_CONCURRENT')
+if concurrent:
+    parts.append(
+        "=== ⚠ CONCURRENT PR ACTIVITY ===\n"
+        "Others recently modified files you authored. Verify nothing was deleted "
+        "(check `git show <sha> -- <file> | grep '^-'` before continuing your work):\n"
+        + concurrent + "\n"
+        "================================"
+    )
+
 branch = get('F_BRANCH')
 if branch:
     parts.append(f"Branch: {branch}")
@@ -220,17 +250,6 @@ parts.append("Uncommitted:\n" + status if status else "Working tree: clean")
 prs = get('F_PRS')
 if prs:
     parts.append("Open PRs:\n" + prs)
-
-# v5.3.0: surface concurrent PR activity on my recently-touched files.
-# Calls out the "PR description didn't disclose deletions" risk explicitly so
-# the agent will run `git show <sha> -- <file> | grep '^-'` before continuing.
-concurrent = get('F_CONCURRENT')
-if concurrent:
-    parts.append(
-        "WARNING: Others recently modified files you authored. Verify nothing was deleted "
-        "(check `git show <sha> -- <file> | grep '^-'` before continuing your work):\n"
-        + concurrent
-    )
 
 retro = get('F_RETRO')
 if retro:
