@@ -151,7 +151,7 @@ fi
 # ----------------------------------------------------------------------------
 F_CONCURRENT=""
 # Use git user.name as identity filter — robust to multiple email aliases.
-# Real failure mode: zelinwang10@gmail.com vs zelinwang@andrew.cmu.edu both
+# Real failure mode: two email aliases (personal vs. academic) both
 # show as "Zane Wang" but only one matches `--author=email`. Name-based
 # filter catches both. Falls back to email if name not configured.
 #
