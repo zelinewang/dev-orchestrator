@@ -1,7 +1,7 @@
 ---
-description: "End-to-end AI development orchestrator. Classifies task type, auto-detects tier, chains all skills."
+description: "End-to-end AI development orchestrator. Auto-detects task tier and chains all skills."
 allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Agent, WebFetch, Skill, AskUserQuestion
-argument-hint: "<task description> [--quick|--deep|--no-spec|--no-pr|--research|--cicd]"
+argument-hint: "<task description> [--quick|--deep|--no-spec|--no-pr|--research|--cicd|--loop|--no-loop|--max-loop-iter=N|--loop-delay=N]"
 ---
 
 Invoke the `dev-orchestrator` skill with the user's task description.
