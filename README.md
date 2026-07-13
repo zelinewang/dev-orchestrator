@@ -34,31 +34,36 @@ zero context cost.
 That flow is the skill's interface. The gates behind it are real: the
 pre-commit hook runs `verify-dev.sh`, which auto-detects your test command,
 runs the full suite, checks that new source ships with new tests, and blocks
-the commit on failure. Run it yourself against any repo:
+the commit on failure. The repository includes a committed clean fixture at
+[`examples/verify-clean-go`](examples/verify-clean-go). Run this exact command
+from the repository root to reproduce the zero-warning result; an abridged
+transcript follows:
 
 ```console
-$ bash scripts/verify-dev.sh .
+$ bash scripts/verify-dev.sh examples/verify-clean-go
 === /dev Verification Gate (mode: develop) ===
 
 [RULE 1] Full test suite...
   Running: go test ./... -count=1
   ✓ Tests passed
-    ok  	demo	1.241s
 
 [RULE 4] New code vs new tests...
   New source files: 0
   New test files:   0
 
-[RULE 6] Scope check...
-  No changes vs origin/master
-
-[QUALITY] Checking for debug leftovers...
-  ✓ No debug leftovers
+...
 
 ===========================================
   VERIFIED ✓ — 0 failures, 0 warnings
 ===========================================
 ```
+
+The final `0 failures, 0 warnings` count is produced by the command above; test
+timings are intentionally omitted because they vary by machine. Running
+`bash scripts/verify-dev.sh .` against this plugin repository instead reports
+one warning because the plugin itself has no auto-detected project test
+manifest. That checkout-level warning is expected and is not the sample shown
+above.
 
 ## Architecture: 4-Layer Enforcement
 
@@ -123,7 +128,8 @@ auto-detected; flags (`--quick`, `--deep`, `--research`, `--cicd`, `--no-spec`,
 
 ## Hooks (Deterministic Layer)
 
-All hooks run on the host at zero context cost and fire automatically.
+Once registered with Claude Code, all hooks run on the host at zero context
+cost and fire automatically.
 
 | Hook | Event | Does |
 |------|-------|------|
@@ -183,20 +189,26 @@ cd ~/claude-code-config && git pull && bash install.sh
 ### Option B — manual
 
 ```bash
-# Hooks (register in ~/.claude/settings.json — JSON snippets are in hooks/)
-cp hooks/dev-*.sh ~/.claude/hooks/ && chmod +x ~/.claude/hooks/dev-*.sh
+# Run from the repository root. These commands also work with a fresh HOME.
+mkdir -p \
+  "$HOME/.claude/hooks" \
+  "$HOME/.claude/rules/dev-workflow" \
+  "$HOME/.claude/scripts" \
+  "$HOME/.claude/skills/dev-orchestrator" \
+  "$HOME/.claude/commands"
 
-# Rules
-mkdir -p ~/.claude/rules/dev-workflow && cp rules/dev-workflow/*.md ~/.claude/rules/dev-workflow/
-
-# Scripts
-cp scripts/*.sh ~/.claude/scripts/ && chmod +x ~/.claude/scripts/*.sh
-
-# Skill + command
-mkdir -p ~/.claude/skills/dev-orchestrator
-cp skills/dev-orchestrator/SKILL.md ~/.claude/skills/dev-orchestrator/
-cp commands/dev.md ~/.claude/commands/
+install -m 755 hooks/dev-*.sh "$HOME/.claude/hooks/"
+install -m 644 rules/dev-workflow/*.md "$HOME/.claude/rules/dev-workflow/"
+install -m 755 scripts/*.sh "$HOME/.claude/scripts/"
+install -m 644 skills/dev-orchestrator/SKILL.md "$HOME/.claude/skills/dev-orchestrator/"
+install -m 644 commands/dev.md "$HOME/.claude/commands/"
 ```
+
+This copies the five hook executables but does not register them. Hook
+registration is host-specific; configure the events in the
+[Hooks table](#hooks-deterministic-layer) using Claude Code's
+[official hooks documentation](https://code.claude.com/docs/en/hooks).
+This repository does not include or claim a ready-made registration JSON file.
 
 ### Requirements
 
