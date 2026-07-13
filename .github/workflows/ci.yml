@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Shell and plugin checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Syntax check (bash -n)
+        run: find . -name '*.sh' -not -path './.git/*' -print0 | xargs -0 -n1 bash -n
+
+      - name: Lint (shellcheck)
+        run: find . -name '*.sh' -not -path './.git/*' -print0 | xargs -0 shellcheck --severity=warning
+
+      - name: Validate plugin manifest
+        run: |
+          jq empty .claude-plugin/plugin.json
+          test -d skills
+          test -d commands
+
+      - name: Smoke-run verify gate (must exit 0)
+        run: bash scripts/verify-dev.sh .
