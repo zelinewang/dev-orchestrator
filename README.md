@@ -4,6 +4,7 @@ A Claude Code plugin that runs the whole development loop from one command —
 investigate → plan → TDD → verify → ship — and backs each quality gate with a
 deterministic host-side hook, not a prompt reminder the model can forget.
 
+[![CI](https://github.com/zelinewang/dev-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/zelinewang/dev-orchestrator/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-8A2BE2.svg)](https://docs.claude.com/en/docs/claude-code/overview)
 [![Shell](https://img.shields.io/github/languages/top/zelinewang/dev-orchestrator.svg)](https://github.com/zelinewang/dev-orchestrator)
