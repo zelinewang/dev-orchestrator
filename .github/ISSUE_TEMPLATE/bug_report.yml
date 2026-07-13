@@ -1,0 +1,43 @@
+name: Bug report
+description: Report a problem with the /dev orchestrator plugin
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is a Claude Code plugin — a `/dev` skill, a set of host hooks, and
+        `verify-dev.sh`. Knowing which layer misbehaved (and your Claude Code
+        version) is usually enough to reproduce.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Which component?
+      options:
+        - /dev skill (planning / routing)
+        - A hook (verify-on-commit, quality-gate, session-start/end)
+        - verify-dev.sh
+        - Rules / CLAUDE.md guidance
+        - Installation
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Expected versus actual behavior. Include the command or `/dev` invocation.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: cc-version
+    attributes:
+      label: Claude Code version
+      description: Output of `claude --version`.
+    validations:
+      required: true
